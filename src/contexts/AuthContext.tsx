@@ -79,6 +79,9 @@ const getInitialProfile = (): ShopProfile => {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
     try {
+      if ((auth as any)?.currentUser) {
+        return (auth as any).currentUser;
+      }
       if (localStorage.getItem('master_admin_session') === 'true') {
         return {
           uid: 'master_admin',
@@ -125,30 +128,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  async function ensureUserDoc(firebaseUser: User, name?: string, isExplicitAuth: boolean = false): Promise<boolean> {
+  async function ensureUserDoc(firebaseUser: User, name?: string): Promise<boolean> {
     try {
       if (firebaseUser.isAnonymous || !firebaseUser.email) return false;
 
       const email = firebaseUser.email.toLowerCase().trim();
-      const displayName = name || firebaseUser.displayName || 'Shop Client';
       const userRef = doc(db, 'users', firebaseUser.uid);
       const snap = await getDoc(userRef);
-
-      // If this is a background session refresh (not an explicit sign-in/sign-up)
-      // and the document was deleted from Firestore `users`, do NOT resurrect it!
-      if (!snap.exists() && !isExplicitAuth && !MASTER_ADMIN_EMAILS.includes(email)) {
-        await deleteDoc(doc(db, 'shops', firebaseUser.uid)).catch(() => {});
-        await signOut(auth).catch(() => {});
-        setUser(null);
-        return false;
-      }
 
       // Clean up any older duplicate UIDs for this same email
       await purgeStaleEmailDocs(email, firebaseUser.uid);
 
       const resolvedName = MASTER_ADMIN_EMAILS.includes(email)
         ? 'Super Admin'
-        : (name || snap.data()?.name || firebaseUser.displayName || 'Shop Client');
+        : (name || snap.data()?.name || firebaseUser.displayName || email.split('@')[0] || 'Shop Client');
 
       const userData: Record<string, any> = {
         uid: firebaseUser.uid,
@@ -165,29 +158,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!snap.exists()) {
         userData.createdAt = serverTimestamp();
         userData.role = MASTER_ADMIN_EMAILS.includes(email) ? 'superadmin' : 'admin';
+        userData.status = 'active';
       }
 
       await setDoc(userRef, userData, { merge: true });
 
-      // Ensure shops document also has ownerEmail and ownerName populated
+      // Ensure shops document also exists with clean defaults
       const shopRef = doc(db, 'shops', firebaseUser.uid);
       const shopSnap = await getDoc(shopRef);
       if (!shopSnap.exists()) {
+        const initials = getInitials(resolvedName || 'Mobile Center');
         await setDoc(shopRef, {
           shopId: `shop_${firebaseUser.uid.slice(0, 8)}`,
           ownerUid: firebaseUser.uid,
           ownerEmail: email,
           ownerName: resolvedName,
           shopName: resolvedName,
+          shortName: initials,
+          phone: '',
+          secondaryPhone: '',
+          address: 'Main Market',
+          subTitle: 'Mobile Sales & Services',
+          receiptNote: 'Warranty claim requires original bill slip. Thank you for your business!',
+          whatsappFooter: `${resolvedName} — Main Market`,
           status: 'active',
           paidMonths: 0,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         }, { merge: true });
-      } else {
-        if (email) {
-          await setDoc(shopRef, { ownerEmail: email, updatedAt: serverTimestamp() }, { merge: true });
-        }
+      } else if (email) {
+        await setDoc(shopRef, { ownerEmail: email, updatedAt: serverTimestamp() }, { merge: true });
       }
       return true;
     } catch (err) {
@@ -196,10 +196,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const loadUserProfile = async (firebaseUser: User, customName?: string, isExplicitAuth: boolean = false) => {
+  const loadUserProfile = async (firebaseUser: User, customName?: string) => {
     try {
       if (firebaseUser.isAnonymous) return;
-      const isValid = await ensureUserDoc(firebaseUser, customName, isExplicitAuth);
+      const isValid = await ensureUserDoc(firebaseUser, customName);
       if (!isValid) return;
 
       const profile = await getShopProfile(
@@ -231,7 +231,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     updateAppBranding(shopProfile.shopName, shopProfile.shortName);
 
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      setLoading(true);
       if (firebaseUser) {
         if (firebaseUser.isAnonymous) {
           const isMaster = localStorage.getItem('master_admin_session') === 'true';
@@ -241,35 +240,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               email: 'threadsandtailsshop@gmail.com',
               displayName: 'Super Admin',
             } as unknown as User);
+            setShopProfile((prev) =>
+              prev.shopId
+                ? prev
+                : {
+                    ...EMPTY_SHOP_PROFILE,
+                    shopId: 'shop_master_admin',
+                    shopName: 'Super Admin',
+                    shortName: 'SA',
+                    ownerEmail: 'threadsandtailsshop@gmail.com',
+                  }
+            );
           }
           setLoading(false);
           return;
         }
 
-        // Verify with Firebase Authentication server that this user was NOT deleted in Firebase Console
-        try {
-          await firebaseUser.reload();
-        } catch (reloadErr: any) {
-          const code = reloadErr?.code || '';
-          if (
-            code === 'auth/user-not-found' ||
-            code === 'auth/user-disabled' ||
-            code === 'auth/invalid-user-token' ||
-            code === 'auth/user-token-expired'
-          ) {
-            // User was deleted or disabled in Firebase Authentication! Purge Firestore docs & sign out.
-            await deleteDoc(doc(db, 'users', firebaseUser.uid)).catch(() => {});
-            await deleteDoc(doc(db, 'shops', firebaseUser.uid)).catch(() => {});
-            await signOut(auth).catch(() => {});
-            setUser(null);
-            setShopProfile(EMPTY_SHOP_PROFILE);
-            setLoading(false);
-            return;
-          }
-        }
-
+        // Set user and immediate fallback shopId right away so ProtectedRoute never blocks navigation
         setUser(firebaseUser);
-        await loadUserProfile(firebaseUser, undefined, false);
+        setShopProfile((prev) =>
+          prev.shopId
+            ? prev
+            : {
+                ...EMPTY_SHOP_PROFILE,
+                shopId: `shop_${firebaseUser.uid.slice(0, 8)}`,
+                ownerUid: firebaseUser.uid,
+                ownerEmail: firebaseUser.email || '',
+                shopName: firebaseUser.displayName || (firebaseUser.email ? firebaseUser.email.split('@')[0] : 'Mobile Center'),
+                shortName: getInitials(firebaseUser.displayName || 'Mobile Center'),
+              }
+        );
+
+        await loadUserProfile(firebaseUser, undefined);
       } else {
         // Check if master admin session is set in localStorage
         const isMaster = localStorage.getItem('master_admin_session') === 'true';
@@ -280,7 +282,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             displayName: 'Super Admin',
           } as unknown as User;
           setUser(masterUser);
-          signInAnonymously(auth).catch(() => {});
+          setShopProfile((prev) =>
+            prev.shopId
+              ? prev
+              : {
+                  ...EMPTY_SHOP_PROFILE,
+                  shopId: 'shop_master_admin',
+                  shopName: 'Super Admin',
+                  shortName: 'SA',
+                  ownerEmail: 'threadsandtailsshop@gmail.com',
+                }
+          );
         } else {
           setUser(null);
           setShopProfile(EMPTY_SHOP_PROFILE);
@@ -304,83 +316,122 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (isMasterEmail && isMasterPass) {
       localStorage.setItem('master_admin_session', 'true');
+      const masterProfile: ShopProfile = {
+        ...EMPTY_SHOP_PROFILE,
+        shopId: 'shop_master_admin',
+        ownerUid: 'master_admin',
+        ownerEmail: 'threadsandtailsshop@gmail.com',
+        shopName: 'Super Admin',
+        shortName: 'SA',
+        ownerName: 'Super Admin',
+      };
+      setShopProfile(masterProfile);
       const masterUser = {
         uid: 'master_admin',
         email: 'threadsandtailsshop@gmail.com',
         displayName: 'Super Admin',
       } as unknown as User;
       setUser(masterUser);
+      setLoading(false);
 
-      // Attempt to register/sync with Firebase Auth and Firestore
-      try {
-        const cred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
-        if (cred.user) {
-          await ensureUserDoc(cred.user, 'Super Admin', true);
-          setUser(cred.user);
-          return;
-        }
-      } catch (authErr: any) {
-        if (authErr.code === 'auth/user-not-found' || authErr.code === 'auth/invalid-credential') {
-          try {
-            const newCred = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPass);
-            if (newCred.user) {
-              await ensureUserDoc(newCred.user, 'Super Admin', true);
-              setUser(newCred.user);
-              return;
+      // Attempt to register/sync with Supabase Auth and DB in background
+      (async () => {
+        try {
+          const cred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
+          if (cred.user) {
+            setUser(cred.user);
+            await loadUserProfile(cred.user, 'Super Admin');
+            return;
+          }
+        } catch (authErr: any) {
+          if (authErr.code === 'auth/user-not-found' || authErr.code === 'auth/invalid-credential') {
+            try {
+              const newCred = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPass);
+              if (newCred.user) {
+                setUser(newCred.user);
+                await loadUserProfile(newCred.user, 'Super Admin');
+                return;
+              }
+            } catch (e2) {
+              // ignore
             }
-          } catch (e2) {
-            // ignore
           }
         }
-      }
+      })();
       return;
     }
 
     try {
       const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
       if (cred.user) {
-        await loadUserProfile(cred.user, undefined, true);
+        // Immediately set user and fallback shopProfile so navigation to /dashboard works without delay
+        const fallbackShopId = `shop_${cred.user.uid.slice(0, 8)}`;
+        const fallbackName = cred.user.displayName || cleanEmail.split('@')[0] || 'Mobile Center';
+        setUser(cred.user);
+        setShopProfile((prev) =>
+          prev.shopId
+            ? prev
+            : {
+                ...EMPTY_SHOP_PROFILE,
+                shopId: fallbackShopId,
+                ownerUid: cred.user.uid,
+                ownerEmail: cleanEmail,
+                shopName: fallbackName,
+                shortName: getInitials(fallbackName),
+                ownerName: fallbackName,
+              }
+        );
+        setLoading(false);
+        loadUserProfile(cred.user, undefined).catch(console.warn);
       }
     } catch (err: any) {
       if (isMasterEmail && isMasterPass) {
         localStorage.setItem('master_admin_session', 'true');
+        setShopProfile({
+          ...EMPTY_SHOP_PROFILE,
+          shopId: 'shop_master_admin',
+          ownerUid: 'master_admin',
+          ownerEmail: 'threadsandtailsshop@gmail.com',
+          shopName: 'Super Admin',
+          shortName: 'SA',
+        });
         const masterUser = {
           uid: 'master_admin',
           email: 'threadsandtailsshop@gmail.com',
           displayName: 'Super Admin',
         } as unknown as User;
         setUser(masterUser);
+        setLoading(false);
         return;
       }
+      setLoading(false);
       throw err;
     }
   };
 
   const signUp = async (name: string, email: string, password: string) => {
     const cleanEmail = email.trim().toLowerCase();
-    const cleanName = name.trim();
-    setLoading(true);
+    const cleanName = name.trim() || cleanEmail.split('@')[0] || 'Mobile Center';
 
     const { user: firebaseUser } = await createUserWithEmailAndPassword(auth, cleanEmail, password);
-    await updateProfile(firebaseUser, { displayName: cleanName });
+    updateProfile(firebaseUser, { displayName: cleanName }).catch(console.warn);
 
     // Instantly generate and assign the new unique shop profile to state and storage
-    // so currentShopId is immediately set before any child component mounts or listens!
     const newShopId = `shop_${firebaseUser.uid.slice(0, 8)}`;
-    const initials = getInitials(cleanName || 'Mobile Center');
+    const initials = getInitials(cleanName);
     const newProfile: ShopProfile = {
       shopId: newShopId,
       ownerUid: firebaseUser.uid,
       ownerEmail: cleanEmail,
-      shopName: cleanName || 'Mobile Center',
+      shopName: cleanName,
       shortName: initials,
-      ownerName: cleanName || 'Shop Owner',
+      ownerName: cleanName,
       phone: '',
       secondaryPhone: '',
       address: 'Main Market',
       subTitle: 'Mobile Sales & Services',
       receiptNote: 'Warranty claim requires original bill slip. Thank you for your business!',
-      whatsappFooter: `${cleanName || 'Mobile Center'} — Main Market`,
+      whatsappFooter: `${cleanName} — Main Market`,
     };
 
     setShopProfile(newProfile);
@@ -391,8 +442,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {}
 
     setUser(firebaseUser);
-    await loadUserProfile(firebaseUser, cleanName, true);
     setLoading(false);
+    loadUserProfile(firebaseUser, cleanName).catch(console.warn);
   };
 
   const signInGoogle = async () => {
@@ -405,7 +456,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setGoogleAccessToken(credential.accessToken);
     }
     if (result.user) {
-      await loadUserProfile(result.user, result.user.displayName || undefined, true);
+      setUser(result.user);
+      await loadUserProfile(result.user, result.user.displayName || undefined);
     }
   };
 
@@ -485,7 +537,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         user,
         shopProfile,
-        currentShopId: shopProfile.shopId,
+        currentShopId: shopProfile.shopId || (user ? `shop_${user.uid.slice(0, 8)}` : ''),
         loading,
         googleAccessToken,
         isMasterAdmin,

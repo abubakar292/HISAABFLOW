@@ -96,7 +96,7 @@ export async function getShopProfile(
   email: string,
   displayName?: string
 ): Promise<ShopProfile> {
-  if (!uid) return DEFAULT_ARSHAD_PROFILE;
+  if (!uid) return EMPTY_SHOP_PROFILE;
 
   try {
     const shopRef = doc(db, 'shops', uid);
@@ -104,9 +104,13 @@ export async function getShopProfile(
 
     if (snap.exists()) {
       const data = snap.data() as ShopProfile;
-      const profile = {
-        ...DEFAULT_ARSHAD_PROFILE,
+      const resolvedName = data.shopName || displayName || (email ? email.split('@')[0] : 'Mobile Center');
+      const profile: ShopProfile = {
+        ...EMPTY_SHOP_PROFILE,
         ...data,
+        shopId: data.shopId || `shop_${uid.slice(0, 8)}`,
+        shopName: resolvedName,
+        shortName: data.shortName || getInitials(resolvedName),
         ownerUid: uid,
         ownerEmail: email || data.ownerEmail,
       };

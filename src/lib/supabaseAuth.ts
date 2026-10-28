@@ -10,7 +10,62 @@ export interface User {
   reload: () => Promise<void>;
 }
 
-function mapSupabaseUser(sbUser: any, refreshToken?: string): User {
+const ACTIVE_USER_STORAGE_KEY = 'hf_active_supabase_user_v1';
+const authSubscribers = new Set<(user: User | null) => void>();
+
+function notifyAuthSubscribers(user: User | null) {
+  auth.currentUser = user;
+  for (const cb of authSubscribers) {
+    try {
+      cb(user);
+    } catch (e) {
+      console.error('Auth subscriber error:', e);
+    }
+  }
+}
+
+function savePersistedUser(user: User | null) {
+  try {
+    if (!user || user.isAnonymous) {
+      localStorage.removeItem(ACTIVE_USER_STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(
+      ACTIVE_USER_STORAGE_KEY,
+      JSON.stringify({
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL || null,
+        refreshToken: user.refreshToken || user.uid,
+      })
+    );
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function getPersistedUser(): User | null {
+  try {
+    const raw = localStorage.getItem(ACTIVE_USER_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.uid) return null;
+    return createUserObject({
+      id: parsed.uid,
+      email: parsed.email,
+      user_metadata: {
+        full_name: parsed.displayName,
+        avatar_url: parsed.photoURL,
+      },
+      is_anonymous: false,
+    }, parsed.refreshToken);
+  } catch {
+    return null;
+  }
+}
+
+function createUserObject(sbUser: any, refreshToken?: string): User {
   const displayName =
     sbUser?.user_metadata?.full_name ||
     sbUser?.user_metadata?.display_name ||
@@ -37,6 +92,7 @@ function mapSupabaseUser(sbUser: any, refreshToken?: string): User {
         data.user.user_metadata?.display_name ||
         data.user.user_metadata?.name ||
         userObj.displayName;
+      savePersistedUser(userObj);
     },
   };
 
@@ -44,7 +100,7 @@ function mapSupabaseUser(sbUser: any, refreshToken?: string): User {
 }
 
 export const auth = {
-  currentUser: null as User | null,
+  currentUser: getPersistedUser(),
 };
 
 export function getAuth(_app?: any) {
@@ -55,36 +111,45 @@ export function onAuthStateChanged(
   _authInstance: any,
   callback: (user: User | null) => void
 ): () => void {
-  let isSubscribed = true;
+  authSubscribers.add(callback);
 
-  // Initial session check
+  // 1. Immediately emit persisted user if present so UI never gets stuck on login
+  const persisted = getPersistedUser();
+  if (persisted) {
+    auth.currentUser = persisted;
+    callback(persisted);
+  }
+
+  // 2. Check Supabase session in background
   supabase.auth.getSession().then(({ data }) => {
-    if (!isSubscribed) return;
+    if (!authSubscribers.has(callback)) return;
     if (data?.session?.user) {
-      const mapped = mapSupabaseUser(data.session.user, data.session.refresh_token);
+      const mapped = createUserObject(data.session.user, data.session.refresh_token);
+      savePersistedUser(mapped);
       auth.currentUser = mapped;
       callback(mapped);
-    } else {
+    } else if (!getPersistedUser()) {
       auth.currentUser = null;
       callback(null);
     }
   });
 
-  // Real-time auth state listener
-  const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-    if (!isSubscribed) return;
+  // 3. Listen to Supabase auth changes
+  const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+    if (!authSubscribers.has(callback)) return;
     if (session?.user) {
-      const mapped = mapSupabaseUser(session.user, session.refresh_token);
+      const mapped = createUserObject(session.user, session.refresh_token);
+      savePersistedUser(mapped);
       auth.currentUser = mapped;
       callback(mapped);
-    } else {
+    } else if (event === 'SIGNED_OUT' && !getPersistedUser()) {
       auth.currentUser = null;
       callback(null);
     }
   });
 
   return () => {
-    isSubscribed = false;
+    authSubscribers.delete(callback);
     listener?.subscription?.unsubscribe();
   };
 }
@@ -118,16 +183,13 @@ export async function signInWithEmailAndPassword(
 
   if (error || !data?.user) {
     const err: any = new Error(error?.message || 'Invalid email or password.');
-    if (error?.message?.toLowerCase().includes('invalid login credentials')) {
-      err.code = 'auth/invalid-credential';
-    } else {
-      err.code = 'auth/invalid-credential';
-    }
+    err.code = 'auth/invalid-credential';
     throw err;
   }
 
-  const mapped = mapSupabaseUser(data.user, data.session?.refresh_token);
-  auth.currentUser = mapped;
+  const mapped = createUserObject(data.user, data.session?.refresh_token);
+  savePersistedUser(mapped);
+  notifyAuthSubscribers(mapped);
   return { user: mapped };
 }
 
@@ -165,20 +227,21 @@ export async function createUserWithEmailAndPassword(
   }
 
   // Sign in immediately to establish the active browser session
-  const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+  const { data: signInData } = await supabase.auth.signInWithPassword({
     email: cleanEmail,
     password,
   });
 
   const sbUser = signInData?.user || createdData.user;
-  if (signInError && !sbUser) {
-    const err: any = new Error(signInError.message);
+  if (!sbUser) {
+    const err: any = new Error('Account created, please sign in.');
     err.code = 'auth/invalid-credential';
     throw err;
   }
 
-  const mapped = mapSupabaseUser(sbUser, signInData?.session?.refresh_token);
-  auth.currentUser = mapped;
+  const mapped = createUserObject(sbUser, signInData?.session?.refresh_token);
+  savePersistedUser(mapped);
+  notifyAuthSubscribers(mapped);
   return { user: mapped };
 }
 
@@ -193,6 +256,9 @@ export async function updateProfile(
     user.photoURL = profile.photoURL;
   }
 
+  savePersistedUser(user);
+  notifyAuthSubscribers(user);
+
   try {
     await supabaseAdmin.auth.admin.updateUserById(user.uid, {
       user_metadata: {
@@ -202,21 +268,15 @@ export async function updateProfile(
         avatar_url: user.photoURL,
       },
     });
-    await supabase.auth.updateUser({
-      data: {
-        full_name: user.displayName,
-        display_name: user.displayName,
-        name: user.displayName,
-      },
-    });
   } catch (e) {
     console.warn('Supabase updateProfile warning:', e);
   }
 }
 
 export async function signOut(_authInstance?: any): Promise<void> {
-  auth.currentUser = null;
-  await supabase.auth.signOut();
+  savePersistedUser(null);
+  notifyAuthSubscribers(null);
+  await supabase.auth.signOut().catch(() => {});
 }
 
 export async function signInAnonymously(_authInstance?: any): Promise<{ user: User }> {
@@ -271,7 +331,6 @@ export async function signInWithPopup(
     throw err;
   }
 
-  // Wait briefly if redirecting
   return new Promise((_resolve, reject) => {
     setTimeout(() => {
       if (!data?.url) {

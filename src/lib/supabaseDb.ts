@@ -629,3 +629,74 @@ export function writeBatch(_db?: any) {
     },
   };
 }
+
+/**
+ * Completely deletes all shop data (mobiles, sales, bills, khata, khataTransactions,
+ * expenses, backups, users, shops) and per-email storage files associated with a deleted account.
+ */
+export async function purgeAllShopDataForAccount(
+  email?: string,
+  uid?: string,
+  shopId?: string
+): Promise<void> {
+  const cleanEmail = (email || '').toLowerCase().trim();
+  const derivedShopId = shopId || (uid ? `shop_${uid.slice(0, 8)}` : '');
+  const dataCollections = [
+    'mobiles',
+    'sales',
+    'bills',
+    'khata',
+    'khataTransactions',
+    'expenses',
+    'backups',
+  ];
+
+  for (const colName of dataCollections) {
+    try {
+      const map = await ensureCollectionLoaded(colName);
+      let changed = false;
+
+      for (const [docId, docData] of Array.from(map.entries())) {
+        const docEmail = String(
+          docData?.userEmail || docData?.ownerEmail || docData?.email || ''
+        )
+          .toLowerCase()
+          .trim();
+        const matchesEmail = cleanEmail && docEmail === cleanEmail;
+        const matchesUid = uid && (docData?.userId === uid || docData?.ownerUid === uid || docId === uid);
+        const matchesShopId = derivedShopId && docData?.shopId === derivedShopId;
+
+        if (matchesEmail || matchesUid || matchesShopId) {
+          map.delete(docId);
+          changed = true;
+          if (pgTableStatus.get(colName) === true) {
+            supabaseAdmin.from(colName).delete().eq('id', docId).then(() => {});
+          }
+        }
+      }
+
+      if (changed) {
+        notifyCollectionListeners(colName);
+        schedulePersistCollection(colName);
+      }
+    } catch (e) {
+      // ignore individual collection errors
+    }
+  }
+
+  // Also remove the per-email folder files inside `shop-assets/shops/{email}/`
+  if (cleanEmail) {
+    const safeEmail = cleanEmail.replace(/[^a-z0-9@._-]/g, '_');
+    const pathsToRemove = [
+      ...dataCollections.map((c) => `shops/${safeEmail}/${c}.json`),
+      `shops/${safeEmail}/users.json`,
+      `shops/${safeEmail}/shops.json`,
+    ];
+    try {
+      await supabaseAdmin.storage.from(SUPABASE_BUCKET).remove(pathsToRemove);
+    } catch {
+      // ignore storage cleanup warning
+    }
+  }
+}
+

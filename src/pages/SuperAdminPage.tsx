@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, setDoc, deleteDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { supabaseAdmin } from '../lib/supabase';
+import { purgeAllShopDataForAccount } from '../lib/supabaseDb';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
@@ -150,7 +151,7 @@ export default function SuperAdminPage() {
         }
       }
 
-      // 2. If a user was deleted in Supabase Authentication Console, remove stale non-admin-registered records
+      // 2. If a user was deleted in Supabase Authentication Console, remove stale non-admin-registered records AND all their shop data
       if (authUsers.length > 0) {
         for (const [docId, userData] of Array.from(usersById.entries())) {
           const email = (userData.email || '').toLowerCase().trim();
@@ -159,6 +160,7 @@ export default function SuperAdminPage() {
           const existsInSupabaseAuth = authUsersById.has(docId) || (email && authUsersByEmail.has(email));
 
           if (!existsInSupabaseAuth && !isPreRegistered) {
+            await purgeAllShopDataForAccount(email, docId, shopData.shopId).catch(() => {});
             await deleteDoc(doc(db, 'users', docId)).catch(() => {});
             await deleteDoc(doc(db, 'shops', docId)).catch(() => {});
             usersById.delete(docId);
@@ -294,11 +296,14 @@ export default function SuperAdminPage() {
         // ignore if already deleted from Auth
       }
 
-      // 2. Delete primary documents by ID in Supabase DB
+      // 2. Purge all shop data (mobiles, sales, bills, khata, khataTransactions, expenses, backups, storage files)
+      await purgeAllShopDataForAccount(targetEmail, targetUid).catch(() => {});
+
+      // 3. Delete primary documents by ID in Supabase DB
       await deleteDoc(doc(db, 'users', targetId)).catch(() => {});
       await deleteDoc(doc(db, 'shops', targetId)).catch(() => {});
 
-      // 3. Also delete any other documents matching this email in users and shops
+      // 4. Also delete any other documents matching this email in users and shops
       const uQ = query(collection(db, 'users'), where('email', '==', targetEmail));
       const uSnap = await getDocs(uQ);
       for (const d of uSnap.docs) {
@@ -314,7 +319,7 @@ export default function SuperAdminPage() {
       }
 
       setTenants((prev) => prev.filter((t) => t.ownerEmail !== targetEmail));
-      success(`Removed ${tenantToDelete.shopName} (${targetEmail}) from system & Supabase Auth.`);
+      success(`Removed ${tenantToDelete.shopName} (${targetEmail}) and all associated shop data.`);
       setTenantToDelete(null);
     } catch (err) {
       toast('Failed to delete account', 'error');

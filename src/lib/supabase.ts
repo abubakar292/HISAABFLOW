@@ -15,16 +15,30 @@ export const SUPABASE_BUCKET = 'shop-assets';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
+    storageKey: 'hf-supabase-user-auth',
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
   },
 });
 
+const adminMemoryStorage: Record<string, string> = {};
+
 export const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: {
+    storageKey: 'hf-supabase-admin-service-role',
     persistSession: false,
     autoRefreshToken: false,
+    detectSessionInUrl: false,
+    storage: {
+      getItem: (key: string) => adminMemoryStorage[key] ?? null,
+      setItem: (key: string, value: string) => {
+        adminMemoryStorage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete adminMemoryStorage[key];
+      },
+    },
   },
 });
 
