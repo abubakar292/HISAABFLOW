@@ -8,11 +8,14 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { 
-  ShieldCheck, Users, Search, RefreshCw, UserPlus, Mail, Store, CheckCircle, AlertTriangle, Trash2
+  ShieldCheck, Users, Search, RefreshCw, UserPlus, Mail, Store, CheckCircle, AlertTriangle, Trash2,
+  Cloud, Database, Copy, Check, ExternalLink
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { parseDateSafe } from '../utils/dateUtils';
 import { useToast } from '../contexts/ToastContext';
+import { SUPABASE_SQL_SCHEMA } from '../lib/supabase';
+import { getMasterDriveToken, saveMasterDriveToken, getGoogleDriveAccessToken } from '../utils/googleAuthHelper';
 
 interface ShopTenant {
   id: string;
@@ -51,6 +54,79 @@ export default function SuperAdminPage() {
   // Modal for deleting a client shop account
   const [tenantToDelete, setTenantToDelete] = useState<ShopTenant | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Master Google Drive state
+  const [hasMasterDrive, setHasMasterDrive] = useState(false);
+  const [connectingDrive, setConnectingDrive] = useState(false);
+
+  // Supabase PostgreSQL Schema state
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [syncingSql, setSyncingSql] = useState(false);
+
+  useEffect(() => {
+    getMasterDriveToken().then(tok => setHasMasterDrive(Boolean(tok)));
+  }, []);
+
+  const handleConnectMasterDrive = async () => {
+    setConnectingDrive(true);
+    try {
+      toast('Connecting Master Google Drive (threadsandtailsshop@gmail.com)...', 'info');
+      const token = await getGoogleDriveAccessToken('threadsandtailsshop@gmail.com', true);
+      if (token) {
+        await saveMasterDriveToken(token);
+        setHasMasterDrive(true);
+        success('Master Google Drive connected! All client shops can now sync backups into this central Drive.');
+      }
+    } catch (err: any) {
+      console.warn('Drive connection error:', err);
+      toast(err.message || 'Google Drive connection failed.', 'error');
+    } finally {
+      setConnectingDrive(false);
+    }
+  };
+
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(SUPABASE_SQL_SCHEMA);
+    setCopiedSql(true);
+    success('Supabase SQL Schema copied! Paste it in Supabase Dashboard -> SQL Editor and click Run.');
+    setTimeout(() => setCopiedSql(false), 3000);
+  };
+
+  const handleSyncStorageToSql = async () => {
+    setSyncingSql(true);
+    try {
+      toast('Syncing existing shop data to Supabase PostgreSQL tables...', 'info');
+      const collections = ['users', 'shops', 'mobiles', 'sales', 'bills', 'expenses', 'khata', 'khataTransactions'];
+      let syncedCols = 0;
+      for (const col of collections) {
+        const snap = await getDocs(collection(db, col));
+        if (!snap.empty) {
+          const rows = snap.docs.map(d => {
+            const data = d.data();
+            return {
+              id: d.id,
+              shop_id: data.shopId || null,
+              user_id: data.userId || null,
+              user_email: data.userEmail || data.ownerEmail || null,
+              data,
+              updated_at: new Date().toISOString(),
+            };
+          });
+          const { error: pgErr } = await supabaseAdmin.from(col).upsert(rows, { onConflict: 'id' });
+          if (!pgErr) syncedCols++;
+        }
+      }
+      if (syncedCols > 0) {
+        success(`Synced data into ${syncedCols} PostgreSQL tables in Supabase Table Editor!`);
+      } else {
+        toast('PostgreSQL tables not found in schema yet. Please run the SQL schema in SQL Editor first.', 'info');
+      }
+    } catch (err: any) {
+      toast('Sync completed with notices.', 'info');
+    } finally {
+      setSyncingSql(false);
+    }
+  };
 
   useEffect(() => {
     if (!isMasterAdmin) {
@@ -416,8 +492,9 @@ export default function SuperAdminPage() {
         </div>
       </div>
 
-      {/* KPI Stats - ONLY 1 Card: Total Client Shops */}
-      <div className="max-w-xs">
+      {/* KPI Stats + Master Integrations Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Card 1: Total Client Shops */}
         <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-card flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20 flex items-center justify-center shrink-0">
             <Users className="w-6 h-6" />
@@ -425,6 +502,88 @@ export default function SuperAdminPage() {
           <div>
             <p className="text-xs font-semibold text-gray-400">Total Client Shops</p>
             <p className="text-3xl font-black text-gray-900">{totalClients}</p>
+          </div>
+        </div>
+
+        {/* Card 2: Central Master Google Drive */}
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-card flex flex-col justify-between overflow-hidden">
+          <div className="space-y-2 mb-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="p-2 rounded-xl bg-purple-50 text-[#522D60] shrink-0">
+                  <Cloud className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-gray-900 truncate">Master Google Drive</p>
+                  <p className="text-[10px] text-gray-400 font-mono truncate" title="threadsandtailsshop@gmail.com">
+                    threadsandtailsshop@gmail.com
+                  </p>
+                </div>
+              </div>
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                hasMasterDrive ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-amber-100 text-amber-800 border border-amber-200'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${hasMasterDrive ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                {hasMasterDrive ? 'Connected' : 'Not Connected'}
+              </span>
+            </div>
+            <p className="text-[11px] text-gray-500 leading-snug">
+              Client shops automatically upload their <span className="font-semibold text-gray-700">[ShopName] Backup.json</span> into this central Drive.
+            </p>
+          </div>
+
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={handleConnectMasterDrive}
+            disabled={connectingDrive}
+            isLoading={connectingDrive}
+            className="w-full text-xs font-bold border-purple-200 text-[#522D60] hover:bg-purple-50 cursor-pointer justify-center"
+          >
+            <Cloud className="w-3.5 h-3.5 mr-1.5 shrink-0" />
+            <span className="truncate">{hasMasterDrive ? 'Reconnect Drive' : 'Connect Master Drive'}</span>
+          </Button>
+        </div>
+
+        {/* Card 3: Supabase PostgreSQL Schema & Table Editor */}
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-card flex flex-col justify-between overflow-hidden">
+          <div className="space-y-2 mb-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="p-2 rounded-xl bg-emerald-50 text-emerald-700 shrink-0">
+                  <Database className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-gray-900 truncate">Supabase Table Editor</p>
+                  <p className="text-[10px] text-gray-400 truncate">PostgreSQL Public Schema</p>
+                </div>
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-500 leading-snug">
+              Tables created in Supabase SQL Editor. Every row has <span className="font-mono font-semibold text-gray-700">user_email</span> to see data per shop.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleCopySql}
+              className="text-xs font-bold cursor-pointer justify-center"
+            >
+              {copiedSql ? <Check className="w-3.5 h-3.5 mr-1 text-emerald-600 shrink-0" /> : <Copy className="w-3.5 h-3.5 mr-1 shrink-0" />}
+              <span className="truncate">{copiedSql ? 'Copied!' : 'Copy SQL'}</span>
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSyncStorageToSql}
+              disabled={syncingSql}
+              isLoading={syncingSql}
+              className="text-xs font-bold bg-[#522D60] hover:bg-[#42244E] text-white cursor-pointer justify-center"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1 shrink-0 ${syncingSql ? 'animate-spin' : ''}`} />
+              <span className="truncate">Push Data</span>
+            </Button>
           </div>
         </div>
       </div>

@@ -103,9 +103,12 @@ export default function SettingsPage() {
   const handleSyncToGoogleDrive = async () => {
     setIsSyncingDrive(true);
     try {
-      toast('Connecting to Google Drive...', 'info');
-      const token = await connectGoogleDrive();
-      toast('Uploading store backup...', 'info');
+      const token = await getMasterDriveToken();
+      if (!token) {
+        toast('Master Google Drive backup is currently being set up by the Administrator. You can download an offline backup below anytime.', 'info');
+        return;
+      }
+      toast('Syncing shop backup to Master Google Drive...', 'info');
       
       const res = await syncShopBackupToGoogleDrive(shopProfile, token);
       setDriveSyncResult(res);
@@ -113,12 +116,10 @@ export default function SettingsPage() {
         lastBackupTime: res.modifiedTime,
         googleDriveBackupFileId: res.fileId,
       });
-      success(`Synced ${res.totalRecords} records to Google Drive.`);
+      success(`Synced ${res.totalRecords} records to Master Google Drive ("${shopProfile.shopName || 'Shop'} Backup.json").`);
     } catch (err: any) {
-      const msg = err.message?.includes('popup') || err.message?.includes('unauthorized')
-        ? 'Google authorization window was closed. Please allow popups and try again.'
-        : (err.message || 'Failed to sync with Google Drive.');
-      error(msg);
+      console.warn('Drive sync error:', err);
+      error(err.message || 'Failed to sync backup to Google Drive.');
     } finally {
       setIsSyncingDrive(false);
     }
@@ -315,47 +316,27 @@ export default function SettingsPage() {
         </div>
 
         <div className="p-5 sm:p-6 space-y-4">
-          {/* Master Drive Link Card */}
-          <div className="p-3.5 rounded-xl border border-purple-100 bg-purple-50/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          {/* Cloud Sync Card */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-purple-50/50 border border-purple-100">
             <div className="space-y-0.5">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-[#522D60]">Master Google Drive Storage</span>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                  hasMasterDrive ? 'bg-emerald-100 text-emerald-800' : 'bg-purple-100 text-[#522D60]'
-                }`}>
-                  {hasMasterDrive ? 'Connected' : 'Ready to Connect'}
-                </span>
-              </div>
-              <p className="text-[11px] text-gray-500">
-                Target Owner: <span className="font-medium text-gray-700">threadsandtailsshop@gmail.com</span>
+              <p className="text-xs font-bold text-[#522D60]">Master Cloud Backup</p>
+              <p className="text-xs text-gray-500">
+                Back up your shop data into a dedicated <span className="font-semibold text-gray-700">{shopProfile.shopName || 'Shop'} Backup.json</span> file in the central cloud drive.
               </p>
             </div>
-
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={handleAuthorizeMasterDrive}
-              disabled={isAuthorizingMaster}
-              isLoading={isAuthorizingMaster}
-              className="text-xs self-start sm:self-auto border-purple-200 text-[#522D60] hover:bg-purple-100/60 font-semibold"
-            >
-              <Cloud className="w-3.5 h-3.5 mr-1.5 text-[#522D60]" />
-              {hasMasterDrive ? 'Refresh Drive Access' : 'Connect Master Drive'}
-            </Button>
-          </div>
-
-          {/* Backup Action Buttons */}
-          <div className="flex flex-wrap items-center gap-2.5">
             <Button 
               onClick={handleSyncToGoogleDrive}
               disabled={isSyncingDrive}
               isLoading={isSyncingDrive}
-              className="bg-[#522D60] hover:bg-[#42244D] text-white text-xs sm:text-sm font-semibold"
+              className="bg-[#522D60] hover:bg-[#42244D] text-white text-xs sm:text-sm font-semibold shrink-0 cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isSyncingDrive ? 'animate-spin' : ''}`} />
-              Sync to Google Drive
+              Sync Backup
             </Button>
+          </div>
 
+          {/* Backup Action Buttons */}
+          <div className="flex flex-wrap items-center gap-2.5 pt-1">
             <Button 
               variant="secondary"
               onClick={handleDownloadLocalBackup}
@@ -364,7 +345,7 @@ export default function SettingsPage() {
               className="text-xs sm:text-sm"
             >
               <Download className="w-3.5 h-3.5 mr-1.5 text-gray-500" />
-              Download Offline Backup
+              Download Offline Backup (.json)
             </Button>
 
             <Button

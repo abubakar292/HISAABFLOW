@@ -183,6 +183,7 @@ export default function QuickSalePage() {
             description: `Quick sale - ${formData.itemName}`,
             runningBalance: newBalance,
             saleDate: chosenSaleDate,
+            dateStr: chosenSaleDate,
             date: localSaleDateTime,
             createdAt: serverTimestamp(),
             linkedSaleId: billRef.id

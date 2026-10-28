@@ -297,32 +297,39 @@ export default function KhataPage() {
               key={customer.id}
               whileHover={{ x: 2 }}
               onClick={() => navigate(`/khata/${customer.id}`)}
-              className="bg-white rounded-xl p-4 shadow-card cursor-pointer hover:shadow-card-hover transition-all border border-gray-100 hover:border-[#522D60]/20 flex items-center gap-3 sm:gap-4 group"
+              className="bg-white rounded-2xl p-3.5 sm:p-4 shadow-card cursor-pointer hover:shadow-card-hover transition-all border border-gray-100 hover:border-[#522D60]/20 flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-4 group"
             >
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${
-                customer.type === 'receivable' ? 'bg-purple-100 text-[#522D60]' : 'bg-gray-100 text-gray-700'
-              }`}>
-                {customer.name?.[0]?.toUpperCase() || 'C'}
-              </div>
-
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-900 truncate">{customer.name}</p>
-                <p className="text-xs text-gray-400 truncate">{customer.phone || 'No phone'}</p>
-              </div>
-
-              <div className="text-right flex-shrink-0">
-                <p className={`font-bold ${
-                  customer.type === 'receivable' ? 'text-[#522D60]' : 'text-gray-800'
+              {/* Row 1: Avatar + Name & Phone + Balance Amount */}
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm shrink-0 shadow-2xs ${
+                  customer.type === 'receivable' ? 'bg-purple-100 text-[#522D60]' : 'bg-gray-100 text-gray-700'
                 }`}>
-                  Rs. {(customer.totalBalance || 0).toLocaleString()}
-                </p>
-                <p className="text-xs text-gray-400">
-                  {customer.type === 'receivable' ? 'will give you' : 'you owe'}
-                </p>
+                  {customer.name?.[0]?.toUpperCase() || 'C'}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-gray-900 text-sm sm:text-base leading-snug truncate">
+                    {customer.name}
+                  </p>
+                  <p className="text-xs text-gray-400 font-mono truncate mt-0.5">
+                    {customer.phone || 'No phone'}
+                  </p>
+                </div>
+
+                <div className="text-right shrink-0 pl-1">
+                  <p className={`font-black text-sm sm:text-base tracking-tight ${
+                    customer.type === 'receivable' ? 'text-[#522D60]' : 'text-gray-800'
+                  }`}>
+                    Rs. {(customer.totalBalance || 0).toLocaleString()}
+                  </p>
+                  <p className="text-[11px] font-medium text-gray-400 leading-none mt-0.5">
+                    {customer.type === 'receivable' ? 'will give you' : 'you owe'}
+                  </p>
+                </div>
               </div>
 
-              {/* Action Buttons: WhatsApp, Edit & Delete */}
-              <div className="flex items-center gap-1.5 flex-shrink-0">
+              {/* Row 2 (Mobile) / Right Side (Desktop): Action Buttons */}
+              <div className="flex items-center justify-between sm:justify-end gap-1.5 pt-2 sm:pt-0 border-t border-gray-100/70 sm:border-0 shrink-0">
                 {customer.phone ? (
                   <a
                     href={getWhatsAppKhataUrl(customer.phone, customer.name, customer.totalBalance || 0, customer.type)}
@@ -330,10 +337,10 @@ export default function KhataPage() {
                     rel="noreferrer"
                     onClick={(e) => e.stopPropagation()}
                     title="Send WhatsApp Reminder"
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold rounded-lg border border-emerald-200 transition-colors shadow-xs"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold rounded-xl border border-emerald-200 transition-colors shadow-2xs active:scale-95"
                   >
                     <MessageCircle className="w-3.5 h-3.5 text-emerald-600 fill-emerald-500/20" />
-                    <span className="hidden sm:inline">Reminder</span>
+                    <span>WhatsApp</span>
                   </a>
                 ) : (
                   <button
@@ -342,31 +349,33 @@ export default function KhataPage() {
                       e.stopPropagation();
                       handleOpenEdit(customer, e);
                     }}
-                    title="Phone number missing — Click to add phone for 1-Click WhatsApp"
-                    className="flex items-center gap-1 px-2 py-1.5 bg-slate-100 hover:bg-emerald-50 text-slate-400 hover:text-emerald-700 text-xs font-medium rounded-lg border border-dashed border-slate-300 hover:border-emerald-300 transition-colors"
+                    title="Phone number missing — Click to add phone for WhatsApp"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-50 hover:bg-emerald-50 text-slate-500 hover:text-emerald-700 text-xs font-medium rounded-xl border border-dashed border-slate-300 transition-colors"
                   >
                     <MessageCircle className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline text-[11px]">+ Phone</span>
+                    <span>+ Add Phone</span>
                   </button>
                 )}
 
-                <button
-                  type="button"
-                  title="Edit Customer"
-                  onClick={(e) => handleOpenEdit(customer, e)}
-                  className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  title="Delete Customer"
-                  onClick={(e) => handleOpenDelete(customer, e)}
-                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-                <ChevronRight className="w-4 h-4 text-gray-300 ml-0.5" />
+                <div className="flex items-center gap-0.5 ml-auto sm:ml-0">
+                  <button
+                    type="button"
+                    title="Edit Customer"
+                    onClick={(e) => handleOpenEdit(customer, e)}
+                    className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Delete Customer"
+                    onClick={(e) => handleOpenDelete(customer, e)}
+                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                  <ChevronRight className="w-4 h-4 text-gray-300 ml-0.5 hidden sm:block" />
+                </div>
               </div>
             </motion.div>
           ))

@@ -86,11 +86,12 @@ export default function CustomerLedgerPage() {
       const txs: any[] = [];
       txSnap.forEach(d => {
         const data = d.data();
-        let parsedDate = data.dateStr ? parseDateSafe(data.dateStr) : parseDateSafe(data.date);
+        const rawDate = data.dateStr || data.saleDate;
+        let parsedDate = rawDate ? parseDateSafe(rawDate) : parseDateSafe(data.date);
         // Fix legacy records saved via `new Date("YYYY-MM-DD")` which stored 00:00:00.000 UTC
         // and shifted to the previous day in negative UTC offsets
         if (
-          !data.dateStr &&
+          !rawDate &&
           parsedDate &&
           parsedDate.getUTCHours() === 0 &&
           parsedDate.getUTCMinutes() === 0 &&
@@ -107,11 +108,16 @@ export default function CustomerLedgerPage() {
           );
         }
         const finalDate = parsedDate || parseDateSafe(data.createdAt) || new Date();
+        const canonicalDateStr = rawDate && typeof rawDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rawDate.trim())
+          ? rawDate.trim()
+          : format(finalDate, 'yyyy-MM-dd');
+
         txs.push({
           id: d.id,
           ...data,
           date: finalDate,
-          dateStr: data.dateStr || format(finalDate, 'yyyy-MM-dd'),
+          dateStr: canonicalDateStr,
+          saleDate: canonicalDateStr,
           createdAt: parseDateSafe(data.createdAt) || new Date(),
         });
       });
@@ -153,6 +159,7 @@ export default function CustomerLedgerPage() {
         runningBalance: newBalance,
         date: safeTxDate,
         dateStr: canonicalDateStr,
+        saleDate: canonicalDateStr,
         createdAt: serverTimestamp(),
       };
 
@@ -169,6 +176,7 @@ export default function CustomerLedgerPage() {
         ...newTx,
         date: safeTxDate,
         dateStr: canonicalDateStr,
+        saleDate: canonicalDateStr,
         createdAt: new Date(),
       }, ...transactions].sort((a, b) => b.date.getTime() - a.date.getTime()));
 
@@ -347,8 +355,12 @@ export default function CustomerLedgerPage() {
   const filteredTransactions = transactions.filter((tx) => {
     if (datePreset === 'all') return true;
     if (datePreset === 'custom' && !startStr && !endStr) return true;
-    const txDateObj = tx.date instanceof Date ? tx.date : (parseDateSafe(tx.date) || new Date());
-    const txDateStr = tx.dateStr || format(txDateObj, 'yyyy-MM-dd');
+    const txDateStr =
+      tx.dateStr ||
+      tx.saleDate ||
+      (tx.date instanceof Date
+        ? format(tx.date, 'yyyy-MM-dd')
+        : format(parseDateSafe(tx.date) || new Date(), 'yyyy-MM-dd'));
     if (startStr && txDateStr < startStr) return false;
     if (endStr && txDateStr > endStr) return false;
     return true;
@@ -369,18 +381,18 @@ export default function CustomerLedgerPage() {
     <div className="max-w-3xl mx-auto pb-12">
       
       {/* HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-center justify-between gap-3 mb-4 bg-white p-3.5 sm:p-4 rounded-2xl border border-gray-100 shadow-sm">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
           <button 
             onClick={() => navigate(-1)} 
-            className="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors shrink-0 active:scale-95"
+            className="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors shrink-0 active:scale-95 cursor-pointer"
             aria-label="Back"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight truncate">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <h1 className="text-base sm:text-xl font-black text-gray-900 tracking-tight truncate">
                 {customer.name}
               </h1>
               <button
@@ -394,23 +406,23 @@ export default function CustomerLedgerPage() {
                 <Edit2 className="w-3.5 h-3.5" />
               </button>
             </div>
-            <p className="text-xs sm:text-sm text-gray-500 font-mono mt-0.5">
+            <p className="text-xs text-gray-500 font-mono truncate mt-0.5">
               {customer.phone || 'No phone added'}
             </p>
           </div>
         </div>
 
         {/* WhatsApp Top Button */}
-        <div className="shrink-0 self-stretch sm:self-auto">
+        <div className="shrink-0">
           {customer.phone ? (
             <a
               href={getWhatsAppKhataUrl(customer.phone, customer.name, customer.totalBalance || 0, customer.type)}
               target="_blank"
               rel="noreferrer"
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-sm transition-transform active:scale-95"
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-xs transition-transform active:scale-95"
             >
               <MessageCircle className="w-4 h-4 fill-white/20" />
-              <span>WhatsApp Reminder</span>
+              <span>WhatsApp</span>
             </a>
           ) : (
             <button
@@ -418,26 +430,26 @@ export default function CustomerLedgerPage() {
                 setPhoneToUpdate('');
                 setIsEditingPhone(true);
               }}
-              className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs border border-emerald-300 shadow-2xs transition-all cursor-pointer"
+              className="inline-flex items-center justify-center gap-1 px-2.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs border border-emerald-300 shadow-2xs transition-all cursor-pointer"
             >
               <MessageCircle className="w-4 h-4 text-emerald-600" />
-              <span>+ Add Phone for WhatsApp</span>
+              <span>+ Phone</span>
             </button>
           )}
         </div>
       </div>
 
       {/* BALANCE CARD */}
-      <div className="rounded-2xl p-5 sm:p-6 mb-5 text-white shadow-lg relative overflow-hidden bg-[#522D60] border border-[#522D60]">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="rounded-2xl p-4 sm:p-5 mb-4 text-white shadow-lg relative overflow-hidden bg-[#522D60] border border-[#522D60]">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <p className="text-xs sm:text-sm text-gray-300 uppercase tracking-wider font-semibold">
+            <p className="text-[11px] sm:text-xs text-purple-200 uppercase tracking-wider font-bold">
               Current Total Balance
             </p>
-            <p className="text-3xl sm:text-4xl font-black mt-1 text-white tracking-tight">
+            <p className="text-2xl sm:text-3xl font-black mt-0.5 text-white tracking-tight">
               Rs. {(customer.totalBalance || 0).toLocaleString()}
             </p>
-            <p className="text-xs sm:text-sm font-semibold text-amber-400 mt-1">
+            <p className="text-xs font-semibold text-amber-300 mt-0.5">
               {customer.type === 'receivable' ? '⚡ Customer Owes You (Receivable)' : '🤝 You Owe Customer (Payable)'}
             </p>
           </div>
@@ -445,27 +457,27 @@ export default function CustomerLedgerPage() {
       </div>
 
       {/* ACTION BUTTONS */}
-      <div className="grid grid-cols-2 gap-3 mb-4">
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-3 mb-4">
         <button
           onClick={() => setTxModalType('udhar')}
-          className="py-3 px-2 rounded-xl bg-red-50 border border-red-200 text-red-600 font-bold text-sm sm:text-base flex items-center justify-center gap-1.5 sm:gap-2 hover:bg-red-100 transition-colors shadow-2xs active:scale-95 cursor-pointer"
+          className="py-2.5 px-2 rounded-xl bg-red-50 border border-red-200 text-red-600 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 hover:bg-red-100 transition-colors shadow-2xs active:scale-95 cursor-pointer"
         >
-          <ArrowUpRight className="w-5 h-5 shrink-0 stroke-[2.5]" />
+          <ArrowUpRight className="w-4 h-4 shrink-0 stroke-[2.5]" />
           <span>Give Credit</span>
         </button>
         <button
           onClick={() => setTxModalType('wasooli')}
-          className="py-3 px-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold text-sm sm:text-base flex items-center justify-center gap-1.5 sm:gap-2 hover:bg-emerald-100 transition-colors shadow-2xs active:scale-95 cursor-pointer"
+          className="py-2.5 px-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 hover:bg-emerald-100 transition-colors shadow-2xs active:scale-95 cursor-pointer"
         >
-          <ArrowDownLeft className="w-5 h-5 shrink-0 stroke-[2.5]" />
+          <ArrowDownLeft className="w-4 h-4 shrink-0 stroke-[2.5]" />
           <span>Receive Payment</span>
         </button>
       </div>
 
-      {/* COMPACT DATE FILTER + SMALL GIVEN & GOT BOXES ON NEXT LINE */}
-      <div className="bg-white rounded-2xl p-3.5 mb-5 border border-gray-100 shadow-xs space-y-3">
-        {/* Row 1: Date Filter Pills */}
-        <div className="flex items-center gap-1.5 flex-wrap">
+      {/* COMPACT DATE FILTER + NON-SQUEEZING GIVEN & GOT BOXES */}
+      <div className="bg-white rounded-2xl p-3 sm:p-3.5 mb-4 border border-gray-100 shadow-xs space-y-2.5">
+        {/* Row 1: Date Filter Pills with horizontal scroll on mobile */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:flex-wrap">
           {[
             { id: 'all', label: 'All Time' },
             { id: 'today', label: 'Today' },
@@ -480,7 +492,7 @@ export default function CustomerLedgerPage() {
               <button
                 key={p.id}
                 onClick={() => setDatePreset(p.id as DatePreset)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer shrink-0 ${
                   active
                     ? 'bg-[#522D60] text-white shadow-2xs'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -494,14 +506,14 @@ export default function CustomerLedgerPage() {
 
         {/* Custom Date Range Inputs (when Custom is active) */}
         {datePreset === 'custom' && (
-          <div className="grid grid-cols-2 gap-2.5 pt-1">
+          <div className="grid grid-cols-2 gap-2 pt-1">
             <div>
               <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">From Date</label>
               <input
                 type="date"
                 value={customStartDate}
                 onChange={(e) => setCustomStartDate(e.target.value)}
-                className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:border-[#522D60]"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:border-[#522D60]"
               />
             </div>
             <div>
@@ -510,21 +522,29 @@ export default function CustomerLedgerPage() {
                 type="date"
                 value={customEndDate}
                 onChange={(e) => setCustomEndDate(e.target.value)}
-                className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:border-[#522D60]"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:border-[#522D60]"
               />
             </div>
           </div>
         )}
 
-        {/* Row 2 (Next Line): Two Small Compact Boxes for Given & Got */}
-        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-100">
-          <div className="px-3.5 py-2.5 rounded-xl bg-rose-50/80 border border-rose-200 flex items-center justify-between gap-2">
-            <span className="text-xs font-extrabold text-rose-700 uppercase tracking-wide">Given</span>
-            <span className="text-sm sm:text-base font-black text-rose-700">Rs. {periodGiven.toLocaleString()}</span>
+        {/* Row 2: Two Small Compact Non-Squeezing Boxes for Given & Got */}
+        <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-gray-100">
+          <div className="p-2.5 sm:p-3 rounded-xl bg-rose-50/80 border border-rose-200 flex flex-col justify-center">
+            <span className="text-[10px] sm:text-xs font-extrabold text-rose-600 uppercase tracking-wider truncate">
+              Given ({datePreset === 'all' ? 'All Time' : periodLabel})
+            </span>
+            <span className="text-sm sm:text-base font-black text-rose-700 mt-0.5 truncate">
+              Rs. {periodGiven.toLocaleString()}
+            </span>
           </div>
-          <div className="px-3.5 py-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200 flex items-center justify-between gap-2">
-            <span className="text-xs font-extrabold text-emerald-700 uppercase tracking-wide">Got</span>
-            <span className="text-sm sm:text-base font-black text-emerald-700">Rs. {periodGot.toLocaleString()}</span>
+          <div className="p-2.5 sm:p-3 rounded-xl bg-emerald-50/80 border border-emerald-200 flex flex-col justify-center">
+            <span className="text-[10px] sm:text-xs font-extrabold text-emerald-600 uppercase tracking-wider truncate">
+              Got ({datePreset === 'all' ? 'All Time' : periodLabel})
+            </span>
+            <span className="text-sm sm:text-base font-black text-emerald-700 mt-0.5 truncate">
+              Rs. {periodGot.toLocaleString()}
+            </span>
           </div>
         </div>
       </div>

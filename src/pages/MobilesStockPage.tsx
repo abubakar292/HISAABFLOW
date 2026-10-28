@@ -231,6 +231,7 @@ export default function MobilesStockPage() {
             description: `Mobile sale - ${singleSellModal.modelName}`,
             runningBalance: newBalance,
             saleDate: chosenSaleDate,
+            dateStr: chosenSaleDate,
             date: localSaleDateTime,
             createdAt: serverTimestamp(),
             linkedSaleId: billRef.id
@@ -433,6 +434,7 @@ export default function MobilesStockPage() {
             description: `Multiple Sale - ${validItems.length} mobiles`,
             runningBalance: newBalance,
             saleDate: chosenSaleDate,
+            dateStr: chosenSaleDate,
             date: localSaleDateTime,
             createdAt: serverTimestamp(),
             linkedSaleId: billRef.id
