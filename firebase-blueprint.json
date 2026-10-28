@@ -1,0 +1,247 @@
+{
+  "entities": {
+    "user": {
+      "title": "User",
+      "description": "Authenticated user profile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "shop": {
+      "title": "Shop",
+      "description": "Independent shop configuration and profile per shopkeeper",
+      "type": "object",
+      "properties": {
+        "shopName": { "type": "string" },
+        "shortName": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "subTitle": { "type": "string" },
+        "email": { "type": "string" }
+      },
+      "required": ["shopName"]
+    },
+    "mobile": {
+      "title": "Mobile Stock Item",
+      "description": "Mobile phone stock unit belonging to a specific shopkeeper",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "modelName": { "type": "string" },
+        "company": { "type": "string" },
+        "ramRom": { "type": "string" },
+        "basePrice": { "type": "number" },
+        "quantity": { "type": "number" },
+        "condition": { "type": "string" },
+        "supplier": { "type": "string" },
+        "imei1": { "type": "string" },
+        "imei2": { "type": "string" }
+      },
+      "required": ["userId", "modelName", "quantity"]
+    },
+    "sale": {
+      "title": "Sale Record",
+      "description": "Sale transaction record scoped to a specific shopkeeper",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "itemType": { "type": "string" },
+        "itemName": { "type": "string" },
+        "basePrice": { "type": "number" },
+        "sellPrice": { "type": "number" },
+        "profit": { "type": "number" },
+        "customerName": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["userId", "itemName", "sellPrice"]
+    },
+    "bill": {
+      "title": "Bill",
+      "description": "Invoice and receipt document scoped to a specific shopkeeper",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "billNumber": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "totalSellPrice": { "type": "number" },
+        "totalProfit": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["userId", "billNumber", "totalSellPrice"]
+    },
+    "khata": {
+      "title": "Khata Customer",
+      "description": "Customer ledger record owned by a specific shopkeeper",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "type": { "type": "string" },
+        "totalBalance": { "type": "number" }
+      },
+      "required": ["userId", "name"]
+    },
+    "khataTransaction": {
+      "title": "Khata Transaction",
+      "description": "Debit or credit entry for a Khata customer",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "khataId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "transactionType": { "type": "string" },
+        "amount": { "type": "number" },
+        "runningBalance": { "type": "number" }
+      },
+      "required": ["userId", "khataId", "amount", "transactionType"]
+    },
+    "expense": {
+      "title": "Expense",
+      "description": "Business expense entry owned by a specific shopkeeper",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "amount": { "type": "number" },
+        "category": { "type": "string" }
+      },
+      "required": ["userId", "title", "amount"]
+    },
+    "backup": {
+      "title": "Backup",
+      "description": "Encrypted cloud backup snapshot for a specific shopkeeper",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "version": { "type": "string" },
+        "summary": { "type": "string" }
+      },
+      "required": ["userId"]
+    },
+    "shopInvite": {
+      "title": "Shop Invite",
+      "description": "One-time registration invite created by Super Admin for a specific shopkeeper email",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "shopName": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "email": { "type": "string" },
+        "status": { "type": "string" },
+        "inviteCode": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["email", "shopName", "status"]
+    },
+    "dailyMetric": {
+      "title": "Daily Telemetry Metric",
+      "description": "Daily aggregated activity counters per shop for KnowMobiles dashboard",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "shopId": { "type": "string" },
+        "shopName": { "type": "string" },
+        "date": { "type": "string" },
+        "salesCount": { "type": "number" },
+        "salesVolume": { "type": "number" },
+        "profit": { "type": "number" },
+        "stockCount": { "type": "number" }
+      },
+      "required": ["shopId", "date"]
+    },
+    "admin_credential": {
+      "title": "Shop Admin Credential",
+      "description": "Founder-level record of shopkeeper credentials and access logs",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "shopName": { "type": "string" },
+        "ownerEmail": { "type": "string" },
+        "ownerPassword": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "lastLogin": { "type": "string" }
+      },
+      "required": ["shopId", "ownerEmail"]
+    },
+    "shop_registration": {
+      "title": "Shop Registration Lock",
+      "description": "Enforces 1-time signup per shop",
+      "type": "object",
+      "properties": {
+        "shopId": { "type": "string" },
+        "registered": { "type": "boolean" },
+        "ownerEmail": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "registeredAt": { "type": "string" }
+      },
+      "required": ["shopId", "registered"]
+    }
+  },
+  "firestore": {
+    "/admin_credentials/{docId}": {
+      "schema": "admin_credential",
+      "description": "Founder-accessible registry of shopkeeper logins"
+    },
+    "/shop_registrations/{shopId}": {
+      "schema": "shop_registration",
+      "description": "Registration lock status per shop"
+    },
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "User profiles indexed by UID"
+    },
+    "/shops/{shopId}": {
+      "schema": "shop",
+      "description": "Master shops directory indexed by shopId or UID"
+    },
+    "/shopInvites/{inviteId}": {
+      "schema": "shopInvite",
+      "description": "One-time shopkeeper registration authorization records"
+    },
+    "/dailyMetrics/{docId}": {
+      "schema": "dailyMetric",
+      "description": "Cross-shop aggregated telemetry per date"
+    },
+    "/mobiles/{docId}": {
+      "schema": "mobile",
+      "description": "Mobile inventory items partitioned by userId"
+    },
+    "/sales/{docId}": {
+      "schema": "sale",
+      "description": "Sales records partitioned by userId"
+    },
+    "/bills/{docId}": {
+      "schema": "bill",
+      "description": "Bills and receipts partitioned by userId"
+    },
+    "/khata/{docId}": {
+      "schema": "khata",
+      "description": "Khata customers partitioned by userId"
+    },
+    "/khataTransactions/{docId}": {
+      "schema": "khataTransaction",
+      "description": "Customer ledger transactions partitioned by userId"
+    },
+    "/expenses/{docId}": {
+      "schema": "expense",
+      "description": "Business expenses partitioned by userId"
+    },
+    "/backups/{docId}": {
+      "schema": "backup",
+      "description": "Shop backup snapshots partitioned by userId"
+    }
+  }
+}

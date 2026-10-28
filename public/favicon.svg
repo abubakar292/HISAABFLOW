@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Top Arc Path for Text -->
+    <path id="top-arc" d="M 68 256 A 188 188 0 0 1 444 256" fill="none" />
+    <!-- Bottom Arc Path for Text -->
+    <path id="bottom-arc" d="M 444 256 A 188 188 0 0 1 68 256" fill="none" />
+    <linearGradient id="gold-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FBBF24" />
+      <stop offset="50%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#D97706" />
+    </linearGradient>
+    <filter id="subtle-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.25" />
+    </filter>
+  </defs>
+
+  <!-- Clean Background Circle -->
+  <circle cx="256" cy="256" r="248" fill="#FFFFFF" />
+
+  <!-- Outer Track Ring (Dark Obsidian / Black) -->
+  <circle cx="256" cy="256" r="215" fill="none" stroke="#12141D" stroke-width="26" />
+
+  <!-- Left Side Curved Tech Segment (Silver with Black borders) -->
+  <path d="M 74 200 A 186 186 0 0 0 74 312 L 56 312 A 204 204 0 0 1 56 200 Z" fill="#E2E8F0" stroke="#12141D" stroke-width="4" />
+  <!-- Left Side Divider Bar -->
+  <rect x="52" y="248" width="28" height="16" fill="#12141D" />
+  <line x1="52" y1="252" x2="80" y2="252" stroke="#FFFFFF" stroke-width="2" />
+  <line x1="52" y1="260" x2="80" y2="260" stroke="#FFFFFF" stroke-width="2" />
+
+  <!-- Right Side Curved Tech Segment (Silver with Black borders) -->
+  <path d="M 438 200 A 186 186 0 0 1 438 312 L 456 312 A 204 204 0 0 0 456 200 Z" fill="#E2E8F0" stroke="#12141D" stroke-width="4" />
+  <!-- Right Side Divider Bar -->
+  <rect x="432" y="248" width="28" height="16" fill="#12141D" />
+  <line x1="432" y1="252" x2="460" y2="252" stroke="#FFFFFF" stroke-width="2" />
+  <line x1="432" y1="260" x2="460" y2="260" stroke="#FFFFFF" stroke-width="2" />
+
+  <!-- Top Text Background Pill / Gap in Ring -->
+  <path d="M 120 180 A 180 180 0 0 1 392 180" fill="none" stroke="#FFFFFF" stroke-width="38" />
+
+  <!-- Bottom Text Background Pill / Gap in Ring -->
+  <path d="M 120 332 A 180 180 0 0 0 392 332" fill="none" stroke="#FFFFFF" stroke-width="38" />
+
+  <!-- Top Text: ARSHAD MOBILE ZONE -->
+  <text font-family="'Inter', 'Montserrat', 'Arial Black', sans-serif" font-size="23" font-weight="900" fill="#12141D" letter-spacing="4" text-anchor="middle">
+    <textPath href="#top-arc" startOffset="50%" text-anchor="middle">
+      ARSHAD MOBILE ZONE
+    </textPath>
+  </text>
+
+  <!-- Bottom Text: BARA BAZAR KHYBER -->
+  <text font-family="'Inter', 'Montserrat', 'Arial Black', sans-serif" font-size="22" font-weight="900" fill="#12141D" letter-spacing="4" text-anchor="middle">
+    <textPath href="#bottom-arc" startOffset="50%" text-anchor="middle">
+      BARA BAZAR KHYBER
+    </textPath>
+  </text>
+
+  <!-- Inner Black Ring -->
+  <circle cx="256" cy="256" r="148" fill="none" stroke="#12141D" stroke-width="12" />
+
+  <!-- Subtle Gold Accent Ring -->
+  <circle cx="256" cy="256" r="140" fill="none" stroke="url(#gold-gradient)" stroke-width="3" stroke-dasharray="8 4" opacity="0.9" />
+
+  <!-- Center Big Bold Acronym: AMZ -->
+  <text x="256" y="284" font-family="'Inter', 'Montserrat', 'Arial Black', sans-serif" font-size="96" font-weight="900" fill="#12141D" letter-spacing="3" text-anchor="middle">
+    AMZ
+  </text>
+</svg>

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    
+    <!-- Favicon & Touch Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/logo.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/logo.png" />
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- App Meta & iOS Standalone PWA Support -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="HISAABFLOW" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="HISAABFLOW" />
+    <meta name="theme-color" content="#522D60" />
+    <meta name="description" content="HISAABFLOW — Modern Mobile Shop POS, Accounting & Inventory System" />
+    <meta property="og:title" content="HISAABFLOW" />
+    <meta property="og:description" content="HISAABFLOW — Modern Mobile Shop POS, Accounting & Inventory System" />
+    <meta property="og:image" content="/logo.png" />
+    
+    <title>HISAABFLOW</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Google Identity Services for Google Workspace & Drive OAuth -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+  </head>
+  <body class="bg-white text-gray-900 antialiased selection:bg-[#522D60] selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

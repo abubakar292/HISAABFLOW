@@ -1,0 +1,6 @@
+{
+  "name": "Zamzam Mobile Center",
+  "description": "Mobile shop management system with inventory, sales, expenses, and customer ledger tracking.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
