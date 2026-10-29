@@ -968,16 +968,27 @@ export default function SuperAdminPage() {
           </p>
 
           {/* Option 1: One-Click Google Sign-In */}
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5">
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
             <div className="flex items-center justify-between">
               <span className="font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wide text-[11px]">
                 <Cloud className="w-3.5 h-3.5 text-[#522D60]" />
                 Option 1: Connect via Google Sign-In Popup
               </span>
+              <a
+                href="https://console.firebase.google.com/project/gen-lang-client-0993592848/authentication/settings"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] font-bold text-purple-700 hover:text-purple-900 flex items-center gap-1 underline"
+              >
+                <span>Firebase Domains</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
             </div>
+
             <p className="text-[11px] text-slate-500">
               Opens the Google OAuth window to grant Drive permissions directly for <strong>threadsandtailsshop@gmail.com</strong>.
             </p>
+
             <Button
               type="button"
               onClick={handleConnectMasterDrive}
@@ -988,6 +999,37 @@ export default function SuperAdminPage() {
               <Cloud className="w-4 h-4 mr-1.5" />
               {hasMasterDrive ? 'Re-authorize with Google Account' : 'Authorize with Google Account'}
             </Button>
+
+            {/* Helpful unauthorized-domain fix box */}
+            <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-xl space-y-1.5">
+              <p className="text-[11px] font-bold text-amber-900 flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                Got "auth/unauthorized-domain"?
+              </p>
+              <p className="text-[10px] text-amber-800 leading-snug">
+                Add this preview domain to Firebase Console ➔ Authentication ➔ Settings ➔ Authorized Domains:
+              </p>
+              <div className="flex items-center gap-2">
+                <code className="text-[10px] font-mono bg-white px-2 py-1 rounded border border-amber-200 text-slate-800 flex-1 truncate">
+                  {typeof window !== 'undefined' ? window.location.hostname : 'run.app'}
+                </code>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    if (typeof window !== 'undefined') {
+                      navigator.clipboard.writeText(window.location.hostname);
+                      toast('Domain copied! Paste it in Firebase Authorized Domains.', 'success');
+                    }
+                  }}
+                  className="text-[10px] py-1 px-2 h-auto shrink-0 bg-white"
+                >
+                  <Copy className="w-3 h-3 mr-1" />
+                  Copy
+                </Button>
+              </div>
+            </div>
           </div>
 
           {/* Option 2: Direct OAuth Access Token Input (Bypasses origin_mismatch) */}
