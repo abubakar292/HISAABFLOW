@@ -158,9 +158,17 @@ export function Navbar({ onMenuClick, showMenuButton }: NavbarProps) {
             className="flex items-center gap-2 p-1.5 rounded-xl hover:bg-gray-100 transition-colors active:scale-95 cursor-pointer"
             aria-label="User menu"
           >
-            <div className="w-8 h-8 rounded-xl bg-[#522D60] text-white flex items-center justify-center font-bold text-xs uppercase shadow-xs">
-              {isSuperAdminRoute ? 'A' : (shopProfile.shopName || 'H').slice(0, 1)}
-            </div>
+            {shopProfile.avatarUrl && !isSuperAdminRoute ? (
+              <img 
+                src={shopProfile.avatarUrl} 
+                alt={shopProfile.ownerName || 'Profile'} 
+                className="w-8 h-8 rounded-xl object-cover border border-[#522D60]/20 shadow-xs" 
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-xl bg-[#522D60] text-white flex items-center justify-center font-bold text-xs uppercase shadow-xs">
+                {isSuperAdminRoute ? 'A' : (shopProfile.ownerName || shopProfile.shopName || 'H').slice(0, 1)}
+              </div>
+            )}
             <ChevronDown className="w-4 h-4 text-gray-500" />
           </button>
 
@@ -174,11 +182,24 @@ export function Navbar({ onMenuClick, showMenuButton }: NavbarProps) {
                   exit={{ opacity: 0, scale: 0.95, y: 10 }}
                   className="absolute right-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-gray-100 p-2 z-50 text-left"
                 >
-                  <div className="px-3 py-2 border-b border-gray-100">
-                    <p className="text-xs font-bold text-gray-900 truncate">
-                      {isSuperAdminRoute ? 'Super Admin Portal' : shopProfile.shopName}
-                    </p>
-                    <p className="text-[11px] text-gray-500 truncate">{user?.email || 'Logged In'}</p>
+                  <div className="px-3 py-2 border-b border-gray-100 flex items-center gap-2.5">
+                    {shopProfile.avatarUrl && !isSuperAdminRoute ? (
+                      <img 
+                        src={shopProfile.avatarUrl} 
+                        alt="Avatar" 
+                        className="w-9 h-9 rounded-xl object-cover border border-purple-100 shrink-0" 
+                      />
+                    ) : (
+                      <div className="w-9 h-9 rounded-xl bg-[#522D60] text-white flex items-center justify-center font-bold text-xs uppercase shrink-0">
+                        {isSuperAdminRoute ? 'A' : (shopProfile.ownerName || shopProfile.shopName || 'H').slice(0, 1)}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-gray-900 truncate">
+                        {isSuperAdminRoute ? 'Super Admin Portal' : (shopProfile.ownerName || shopProfile.shopName)}
+                      </p>
+                      <p className="text-[11px] text-gray-500 truncate">{user?.email || 'Logged In'}</p>
+                    </div>
                   </div>
 
                   <div className="py-1">

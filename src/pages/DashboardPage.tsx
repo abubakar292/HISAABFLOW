@@ -234,12 +234,23 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6 pb-20">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight">Overview</h1>
           <p className="text-xs text-gray-400 mt-0.5">
             {shopProfile?.shopName ? `${shopProfile.shopName} — ` : ''}Real-time business performance.
           </p>
+        </div>
+
+        {/* Quick Launch Shortcuts */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => navigate('/purchase-mobile')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-[#522D60] text-white hover:bg-[#42244D] transition-all active:scale-95 shadow-xs"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Stock</span>
+          </button>
         </div>
       </div>
 

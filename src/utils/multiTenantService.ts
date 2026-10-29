@@ -16,6 +16,7 @@ export interface ShopProfile {
   receiptNote?: string;
   whatsappFooter?: string;
   logoUrl?: string;
+  avatarUrl?: string;
   lastBackupTime?: string;
   googleDriveBackupFileId?: string;
   createdAt?: any;
@@ -37,6 +38,8 @@ export const DEFAULT_ARSHAD_PROFILE: ShopProfile = {
   subTitle: 'Bara Bazar Khyber',
   receiptNote: 'Warranty claim requires original bill slip. Thank you for your business!',
   whatsappFooter: 'ارشد موبائل زون (AMZ) باڑہ بازار، خیبر',
+  logoUrl: '',
+  avatarUrl: '',
 };
 
 export const EMPTY_SHOP_PROFILE: ShopProfile = {
@@ -52,6 +55,8 @@ export const EMPTY_SHOP_PROFILE: ShopProfile = {
   subTitle: '',
   receiptNote: '',
   whatsappFooter: '',
+  logoUrl: '',
+  avatarUrl: '',
 };
 
 /**

@@ -81,9 +81,9 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
         * { box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Plus Jakarta Sans", sans-serif; margin: 0; padding: 12px; color: #0f172a; background: #fff; }
         .bill-container { max-width: 800px; margin: 0 auto; border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden; background: #fff; }
-        .header { background: #522D60; color: white; padding: 22px 20px; text-align: center; }
-        .header-inner { display: flex; align-items: center; justify-content: center; gap: 16px; }
-        .header-logo { width: 50px; height: 50px; border-radius: 12px; object-fit: contain; background: #fff; padding: 4px; }
+        .header { background: #522D60; color: white; padding: 20px; text-align: center; }
+        .header-inner { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; }
+        .header-logo { max-width: 100px; max-height: 56px; border-radius: 8px; object-fit: contain; background: #ffffff; padding: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.15); display: inline-block; }
         .title-band { background: #f8fafc; color: #522D60; text-align: center; padding: 8px; font-weight: 800; letter-spacing: 2px; font-size: 11px; border-bottom: 1px solid #e2e8f0; text-transform: uppercase; }
         .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; border-bottom: 2px solid #e2e8f0; font-size: 13px; }
         .info-col p { margin: 4px 0; }

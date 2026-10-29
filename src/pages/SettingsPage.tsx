@@ -3,7 +3,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
 import { 
   Store, User, LogOut, Download, 
-  RefreshCw, HardDrive, Cloud, AlertTriangle
+  RefreshCw, HardDrive, Cloud, AlertTriangle,
+  Upload, Trash2, Image as ImageIcon, Camera, CheckCircle2, Eye, Receipt
 } from 'lucide-react';
 import { useToast } from '../contexts/ToastContext';
 import { Modal } from '../components/ui/Modal';
@@ -14,6 +15,7 @@ import {
 } from '../utils/googleDriveBackup';
 import { getMasterDriveToken } from '../utils/googleAuthHelper';
 import { restoreShopBackup, ShopBackupData } from '../utils/backupService';
+import { compressImage } from '../utils/imageUtils';
 import { format } from 'date-fns';
 
 export default function SettingsPage() {
@@ -34,7 +36,14 @@ export default function SettingsPage() {
   const [address, setAddress] = useState(shopProfile.address || '');
   const [subTitle, setSubTitle] = useState(shopProfile.subTitle || '');
   const [receiptNote, setReceiptNote] = useState(shopProfile.receiptNote || '');
+  const [logoUrl, setLogoUrl] = useState(shopProfile.logoUrl || '');
+  const [avatarUrl, setAvatarUrl] = useState(shopProfile.avatarUrl || '');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isProcessingLogo, setIsProcessingLogo] = useState(false);
+  const [isProcessingAvatar, setIsProcessingAvatar] = useState(false);
+
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // Backup State
   const [isSyncingDrive, setIsSyncingDrive] = useState(false);
@@ -58,9 +67,53 @@ export default function SettingsPage() {
       setAddress(shopProfile.address || '');
       setSubTitle(shopProfile.subTitle || '');
       setReceiptNote(shopProfile.receiptNote || '');
+      setLogoUrl(shopProfile.logoUrl || '');
+      setAvatarUrl(shopProfile.avatarUrl || '');
     }
     getMasterDriveToken().then(tok => setHasMasterDrive(Boolean(tok)));
   }, [shopProfile]);
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsProcessingLogo(true);
+    try {
+      const compressedDataUrl = await compressImage(file, 480, 0.85);
+      setLogoUrl(compressedDataUrl);
+      success('Shop logo loaded. Click "Save Details" below to apply it across all bills.');
+    } catch (err: any) {
+      error(err.message || 'Failed to process image file');
+    } finally {
+      setIsProcessingLogo(false);
+      if (logoInputRef.current) logoInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveLogo = () => {
+    setLogoUrl('');
+    success('Shop logo removed. Clean typography will be used on bills.');
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsProcessingAvatar(true);
+    try {
+      const compressedDataUrl = await compressImage(file, 300, 0.85);
+      setAvatarUrl(compressedDataUrl);
+      success('Profile picture loaded. Click "Save Details" to apply.');
+    } catch (err: any) {
+      error(err.message || 'Failed to process avatar');
+    } finally {
+      setIsProcessingAvatar(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveAvatar = () => {
+    setAvatarUrl('');
+    success('Profile picture removed.');
+  };
 
   const handleAuthorizeMasterDrive = async () => {
     setIsAuthorizingMaster(true);
@@ -91,8 +144,10 @@ export default function SettingsPage() {
         address: address.trim(),
         subTitle: subTitle.trim(),
         receiptNote: receiptNote.trim(),
+        logoUrl: logoUrl.trim(),
+        avatarUrl: avatarUrl.trim(),
       });
-      success('Store profile updated successfully.');
+      success('Store profile, logo, and avatar updated successfully.');
     } catch (err: any) {
       error(err.message || 'Error updating store profile');
     } finally {
@@ -198,11 +253,210 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* ── 1. STORE PROFILE ── */}
+      {/* Hidden File Inputs */}
+      <input
+        ref={avatarInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleAvatarUpload}
+        className="hidden"
+      />
+      <input
+        ref={logoInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleLogoUpload}
+        className="hidden"
+      />
+
+      {/* ── 1. PROFILE PICTURE & SHOP LOGO BRANDING ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        
+        {/* Card A: Owner Profile Picture */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-8 h-8 rounded-xl bg-purple-50 text-[#522D60] flex items-center justify-center">
+                <Camera className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 text-sm">Owner Profile Photo</h3>
+                <p className="text-[11px] text-gray-400">Displayed in top navigation bar and account profile</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4 py-3">
+              <div className="relative">
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt="Owner Avatar"
+                    className="w-20 h-20 rounded-2xl object-cover border-2 border-[#522D60]/20 shadow-md"
+                  />
+                ) : (
+                  <div className="w-20 h-20 rounded-2xl bg-[#522D60] text-white flex items-center justify-center font-black text-2xl uppercase shadow-md">
+                    {(ownerName || shopName || 'H').slice(0, 1)}
+                  </div>
+                )}
+                {avatarUrl && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveAvatar}
+                    title="Remove Photo"
+                    className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center shadow-md transition-transform active:scale-90"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex-1 space-y-2">
+                <p className="text-xs text-gray-600">
+                  {avatarUrl ? 'Photo loaded successfully.' : 'Upload a clear headshot or personal photo.'}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isProcessingAvatar}
+                    onClick={() => avatarInputRef.current?.click()}
+                    className="flex items-center gap-1.5 text-xs font-semibold py-1.5 px-3"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    {avatarUrl ? 'Change Photo' : 'Upload Photo'}
+                  </Button>
+                  {avatarUrl && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveAvatar}
+                      className="text-xs text-rose-600 hover:text-rose-700 font-semibold px-2 py-1"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          <p className="text-[10px] text-gray-400 border-t border-gray-50 pt-2.5 mt-2">
+            Auto-compressed & stored securely in your shop profile.
+          </p>
+        </div>
+
+        {/* Card B: Shop Logo & Bill Header */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-8 h-8 rounded-xl bg-purple-50 text-[#522D60] flex items-center justify-center">
+                <Receipt className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 text-sm">Shop Logo for Invoices</h3>
+                <p className="text-[11px] text-gray-400">Printed on all customer thermal bills, A4 invoices, and receipts</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4 py-3">
+              <div className="relative">
+                {logoUrl ? (
+                  <div className="w-24 h-16 rounded-xl bg-white border border-gray-200 p-1 flex items-center justify-center shadow-xs">
+                    <img
+                      src={logoUrl}
+                      alt="Shop Logo"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-24 h-16 rounded-xl bg-gray-50 border border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 p-2 text-center">
+                    <ImageIcon className="w-5 h-5 text-gray-300 mb-0.5" />
+                    <span className="text-[9px] font-bold">NO LOGO</span>
+                  </div>
+                )}
+                {logoUrl && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveLogo}
+                    title="Remove Logo"
+                    className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center shadow-md transition-transform active:scale-90"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex-1 space-y-2">
+                <p className="text-xs text-gray-600">
+                  {logoUrl 
+                    ? 'Uploaded logo will replace generic monograms on customer receipts.' 
+                    : 'Upload your store emblem or trademark PNG/JPEG.'}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isProcessingLogo}
+                    onClick={() => logoInputRef.current?.click()}
+                    className="flex items-center gap-1.5 text-xs font-semibold py-1.5 px-3"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    {logoUrl ? 'Change Logo' : 'Upload Logo'}
+                  </Button>
+                  {logoUrl && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveLogo}
+                      className="text-xs text-rose-600 hover:text-rose-700 font-semibold px-2 py-1"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Live Bill Header Mini Preview */}
+          <div className="mt-3 p-3 bg-gray-900 rounded-xl text-white">
+            <div className="flex items-center justify-between text-[10px] text-gray-300 font-bold mb-1.5 uppercase tracking-wider">
+              <span>Live Printed Bill Header Preview</span>
+              <Eye className="w-3 h-3 text-purple-300" />
+            </div>
+            <div className="bg-[#522D60] rounded-lg p-2.5 flex items-center justify-center gap-3">
+              {logoUrl ? (
+                <img
+                  src={logoUrl}
+                  alt="Bill Logo"
+                  className="max-h-9 max-w-[70px] object-contain bg-white rounded p-0.5 shrink-0"
+                />
+              ) : null}
+              <div className="text-center min-w-0">
+                <p className="font-black text-xs text-white tracking-wide truncate">
+                  {shopName || 'Shop Name'}
+                </p>
+                <p className="text-[9px] text-purple-100 font-medium truncate">
+                  {(subTitle || 'Market Subtitle')} • Tel: {(phone || '0300-XXXXXXX')}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      {/* ── 2. STORE PROFILE FORM ── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/50 flex items-center gap-2.5">
-          <Store className="w-4 h-4 text-[#522D60]" />
-          <h2 className="font-bold text-gray-900 text-sm">Store Details</h2>
+        <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Store className="w-4 h-4 text-[#522D60]" />
+            <h2 className="font-bold text-gray-900 text-sm">Store Information & Invoicing Contact</h2>
+          </div>
+          {(logoUrl || avatarUrl) && (
+            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+              Custom Branding Active
+            </span>
+          )}
         </div>
 
         <form onSubmit={handleSaveShopProfile} className="p-5 sm:p-6 space-y-4">
