@@ -12,7 +12,8 @@ import {
   Sparkles, 
   AlertCircle,
   CheckCircle2,
-  Maximize2
+  Maximize2,
+  Lock
 } from 'lucide-react';
 
 interface BarcodeScannerProps {
@@ -109,6 +110,21 @@ export function BarcodeScanner({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isProcessingFile, setIsProcessingFile] = useState<boolean>(false);
   const [scanSuccessAnim, setScanSuccessAnim] = useState<boolean>(false);
+  const [showPermissionGuide, setShowPermissionGuide] = useState<boolean>(false);
+  const [isPermanentlyAllowed, setIsPermanentlyAllowed] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && (navigator as any).permissions?.query) {
+      (navigator as any).permissions.query({ name: 'camera' as any })
+        .then((status: any) => {
+          setIsPermanentlyAllowed(status.state === 'granted');
+          status.onchange = () => {
+            setIsPermanentlyAllowed(status.state === 'granted');
+          };
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   const stopScanner = useCallback(async () => {
     if (scannerRef.current && isStartedRef.current) {
@@ -312,7 +328,43 @@ export function BarcodeScanner({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={title} size="lg">
-      <div className="space-y-4">
+      <div className="space-y-3.5">
+        {/* Always Allow Camera Helper Banner */}
+        <div className="flex items-center justify-between px-3 py-2 bg-purple-50 border border-purple-100 rounded-xl text-xs">
+          <div className="flex items-center gap-1.5 text-purple-950 font-medium">
+            <Lock className="w-3.5 h-3.5 text-[#522D60]" />
+            <span>
+              {isPermanentlyAllowed
+                ? 'Camera status: Always allowed on this browser'
+                : 'Want scanner to open instantly without asking?'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowPermissionGuide(!showPermissionGuide)}
+            className="text-[11px] font-bold text-[#522D60] hover:text-[#3B1E45] underline ml-2 shrink-0"
+          >
+            {showPermissionGuide ? 'Hide Steps' : 'How to Always Allow'}
+          </button>
+        </div>
+
+        {showPermissionGuide && (
+          <div className="p-3.5 bg-white border border-purple-200 rounded-xl text-xs text-slate-700 space-y-2 shadow-xs animate-in fade-in duration-200">
+            <p className="font-bold text-slate-900">
+              To stop the browser from asking for permission every time:
+            </p>
+            <ol className="list-decimal pl-4 space-y-1 text-slate-600 text-[11px]">
+              <li>Look at the top URL address bar next to the website link.</li>
+              <li>Tap the <strong>Lock 🔒 / Site Settings (tune icon)</strong>.</li>
+              <li>Tap <strong>Permissions</strong> ➔ <strong>Camera</strong>.</li>
+              <li>Select <strong>"Always Allow"</strong> (or "Allow only while using the app").</li>
+            </ol>
+            <p className="text-[10px] text-purple-700 font-medium">
+              After setting this once, your browser saves the permission forever and the camera will open immediately!
+            </p>
+          </div>
+        )}
+
         {/* Scanner Viewport with Laser & Targeting Grid */}
         <div className="relative rounded-2xl overflow-hidden bg-slate-950 border-2 border-slate-800 shadow-inner flex flex-col items-center justify-center min-h-[300px] sm:min-h-[360px]">
           

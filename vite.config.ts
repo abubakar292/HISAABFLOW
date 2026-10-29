@@ -9,6 +9,8 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        'real-firebase/app': path.resolve(__dirname, 'node_modules/firebase/app/dist/esm/index.esm.js'),
+        'real-firebase/auth': path.resolve(__dirname, 'node_modules/firebase/auth/dist/esm/index.esm.js'),
         'firebase/firestore': path.resolve(__dirname, 'src/lib/supabaseDb.ts'),
         'firebase/auth': path.resolve(__dirname, 'src/lib/supabaseAuth.ts'),
         'firebase/app': path.resolve(__dirname, 'src/lib/supabaseApp.ts'),

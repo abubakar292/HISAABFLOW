@@ -20,6 +20,12 @@
       "@/*": [
         "./*"
       ],
+      "real-firebase/app": [
+        "./node_modules/firebase/app/dist/app/index.d.ts"
+      ],
+      "real-firebase/auth": [
+        "./node_modules/firebase/auth/dist/auth/index.d.ts"
+      ],
       "firebase/firestore": [
         "./src/lib/supabaseDb.ts"
       ],
