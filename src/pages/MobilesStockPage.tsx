@@ -147,6 +147,9 @@ export default function MobilesStockPage() {
       batch.update(mobileRef, { quantity: singleSellModal.quantity - 1 });
 
       // 2. Create Sale Record
+      const resolvedCustomerName = singleSellModal.customerName?.trim() 
+        || (singleSellModal.paymentMethod === 'Udhar' ? (khataCustomers.find(c => c.id === singleSelectedKhataId)?.name || 'Khata Customer') : 'Walk-in Customer');
+
       const saleRef = doc(collection(db, 'sales'));
       const saleData = {
         shopId: currentShopId,
@@ -158,8 +161,8 @@ export default function MobilesStockPage() {
         company: singleSellModal.company,
         imei1: singleSellModal.imei1,
         imei2: singleSellModal.imei2,
-        customerName: singleSellModal.customerName,
-        customerPhone: singleSellModal.customerPhone,
+        customerName: resolvedCustomerName,
+        customerPhone: singleSellModal.customerPhone || '',
         basePrice,
         sellPrice,
         profit,
@@ -185,8 +188,8 @@ export default function MobilesStockPage() {
         userId: user?.uid,
         userEmail: (user?.email || '').toLowerCase(),
         billNumber,
-        customerName: singleSellModal.customerName,
-        customerPhone: singleSellModal.customerPhone,
+        customerName: resolvedCustomerName,
+        customerPhone: singleSellModal.customerPhone || '',
         items: [{
           mobileId: singleSellModal.id,
           modelName: `${singleSellModal.company} ${singleSellModal.modelName}`,
@@ -362,14 +365,17 @@ export default function MobilesStockPage() {
       const now = new Date();
       const localSaleDateTime = new Date(sYear, sMonth - 1, sDay, now.getHours(), now.getMinutes(), now.getSeconds());
 
+      const resolvedCustomerName = multiCustomerName?.trim() 
+        || (multiPaymentMethod === 'Udhar' ? (khataCustomers.find(c => c.id === multiSelectedKhataId)?.name || 'Khata Customer') : 'Walk-in Customer');
+
       const billData = {
         shopId: currentShopId,
         shopName: shopProfile?.shopName || 'Mobile Shop',
         userId: user?.uid,
         userEmail: (user?.email || '').toLowerCase(),
         billNumber,
-        customerName: multiCustomerName,
-        customerPhone: multiCustomerPhone,
+        customerName: resolvedCustomerName,
+        customerPhone: multiCustomerPhone || '',
         items: billItems,
         totalSellPrice,
         totalProfit,
@@ -397,8 +403,8 @@ export default function MobilesStockPage() {
           company: item.company,
           imei1: '',
           imei2: '',
-          customerName: multiCustomerName,
-          customerPhone: multiCustomerPhone,
+          customerName: resolvedCustomerName,
+          customerPhone: multiCustomerPhone || '',
           basePrice: item.basePrice,
           sellPrice: item.sellPrice,
           profit: item.profit,
@@ -560,8 +566,8 @@ export default function MobilesStockPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-500">Customer Name *</label>
-                <input required type="text" className="w-full rounded-xl border border-primary-500/20 bg-white/5 px-4 py-2 text-slate-900 outline-none focus:border-primary-500 focus:ring-2"
+                <label className="text-xs font-medium text-slate-500">Customer Name (Optional)</label>
+                <input type="text" placeholder="Walk-in Customer (Optional)" className="w-full rounded-xl border border-primary-500/20 bg-white/5 px-4 py-2 text-slate-900 outline-none focus:border-primary-500 focus:ring-2"
                   value={singleSellModal.customerName} onChange={e => setSingleSellModal({...singleSellModal, customerName: e.target.value})} />
               </div>
               <div className="space-y-1">
@@ -676,8 +682,8 @@ export default function MobilesStockPage() {
       <Modal isOpen={multiSellModalOpen} onClose={() => setMultiSellModalOpen(false)} title="Sell Multiple Mobiles" size="xl">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
           <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-500">Customer Name *</label>
-            <input required type="text" className="w-full rounded-xl border border-primary-500/20 px-4 py-2 text-slate-900 outline-none focus:border-primary-500 focus:ring-2"
+            <label className="text-xs font-medium text-slate-500">Customer Name (Optional)</label>
+            <input type="text" placeholder="Walk-in Customer (Optional)" className="w-full rounded-xl border border-primary-500/20 px-4 py-2 text-slate-900 outline-none focus:border-primary-500 focus:ring-2"
               value={multiCustomerName} onChange={e => setMultiCustomerName(e.target.value)} />
           </div>
           <div className="space-y-1">
