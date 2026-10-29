@@ -118,7 +118,7 @@ export function Navbar({ onMenuClick, showMenuButton }: NavbarProps) {
                     initial={{ opacity: 0, scale: 0.95, y: 10 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                    className="absolute right-0 top-full mt-2 w-72 sm:w-80 bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 z-50 text-left"
+                    className="fixed inset-x-3 sm:inset-auto sm:right-0 top-[calc(3.75rem+env(safe-area-inset-top,0px)+8px)] sm:top-full sm:mt-2 sm:w-80 max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 z-50 text-left mx-auto sm:mx-0"
                   >
                     <h4 className="text-xs font-bold text-gray-900 border-b border-gray-100 pb-2 mb-2 flex items-center justify-between">
                       <span>Low Stock Alerts</span>

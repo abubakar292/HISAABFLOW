@@ -8,7 +8,7 @@ export const MASTER_DRIVE_DOC = 'google_drive_master';
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
 /**
- * Initializes and caches the dedicated real Firebase Auth instance for Google Workspace OAuth
+ * Dedicated real Firebase Auth instance for Google Workspace OAuth
  */
 function getWorkspaceAuth() {
   let oauthApp;
@@ -20,17 +20,38 @@ function getWorkspaceAuth() {
   return getAuth(oauthApp);
 }
 
-/**
- * In-memory token cache to prevent unnecessary popup re-authorizations
- */
+// In-memory token cache
 let inMemoryAccessToken: string | null = null;
 let inMemoryTokenExpiry: number = 0;
 
 /**
+ * Verifies a Google Drive access token by querying the Drive API v3 user profile
+ */
+export async function verifyDriveToken(token: string): Promise<{ valid: boolean; email?: string; error?: string }> {
+  if (!token) return { valid: false, error: 'No token provided' };
+  try {
+    const res = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (res.ok && data?.user) {
+      return { 
+        valid: true, 
+        email: data.user.emailAddress || data.user.displayName || 'threadsandtailsshop@gmail.com' 
+      };
+    }
+    return { valid: false, error: data?.error?.message || 'Token is invalid or expired.' };
+  } catch (err: any) {
+    return { valid: false, error: err.message || 'Network error verifying token with Google.' };
+  }
+}
+
+/**
  * Stores the master owner's Google Drive authorization token in Firestore & localStorage
- * so that any client shop can sync backups directly into the central Google Drive.
+ * so that all client shops can sync backups directly into the central Google Drive.
  */
 export async function saveMasterDriveToken(token: string): Promise<void> {
+  if (!token) return;
   try {
     inMemoryAccessToken = token;
     inMemoryTokenExpiry = Date.now() + 55 * 60 * 1000;
@@ -51,7 +72,7 @@ export async function saveMasterDriveToken(token: string): Promise<void> {
 }
 
 /**
- * Removes the master Google Drive token from storage
+ * Clears the master Google Drive token from memory, localStorage, and Firestore
  */
 export async function removeMasterDriveToken(): Promise<void> {
   inMemoryAccessToken = null;
@@ -62,6 +83,7 @@ export async function removeMasterDriveToken(): Promise<void> {
     await setDoc(doc(db, 'system', MASTER_DRIVE_DOC), {
       accessToken: null,
       updatedAt: serverTimestamp(),
+      savedAtMs: 0,
     }, { merge: true });
   } catch (err) {
     console.warn('Could not clear master drive token in Firestore:', err);
@@ -81,7 +103,6 @@ export async function getMasterDriveToken(): Promise<string | null> {
   const localToken = localStorage.getItem('master_google_drive_token');
   const tokenTime = Number(localStorage.getItem('master_google_drive_token_time') || 0);
 
-  // If valid (< 55 minutes old)
   if (localToken && Date.now() - tokenTime < 55 * 60 * 1000) {
     inMemoryAccessToken = localToken;
     inMemoryTokenExpiry = tokenTime + 55 * 60 * 1000;
@@ -95,7 +116,6 @@ export async function getMasterDriveToken(): Promise<string | null> {
       const data = snap.data();
       if (data.accessToken) {
         const savedAtMs = Number(data.savedAtMs) || 0;
-        // If saved within the last 55 minutes
         if (!savedAtMs || Date.now() - savedAtMs < 55 * 60 * 1000) {
           inMemoryAccessToken = data.accessToken;
           inMemoryTokenExpiry = (savedAtMs || Date.now()) + 55 * 60 * 1000;
@@ -113,34 +133,12 @@ export async function getMasterDriveToken(): Promise<string | null> {
 }
 
 /**
- * Loads the Google Identity Services client script dynamically if needed
+ * Obtains a Google Drive access token using the official Firebase Auth popup.
+ * If the browser environment blocks popups or origins, throws a descriptive error
+ * so the SuperAdminPage can allow pasting or testing the token directly.
  */
-function loadGsiClient(): Promise<void> {
-  if (typeof window === 'undefined') return Promise.resolve();
-  if ((window as any).google?.accounts?.oauth2) return Promise.resolve();
-
-  return new Promise((resolve, reject) => {
-    const existing = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
-    if (existing) {
-      existing.addEventListener('load', () => resolve());
-      existing.addEventListener('error', () => reject(new Error('Failed to load Google Identity Services.')));
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.defer = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load Google Identity Services.'));
-    document.head.appendChild(script);
-  });
-}
-
-/**
- * Primary Strategy: Real Firebase Auth Popup with GoogleAuthProvider
- */
-async function authenticateViaRealFirebaseAuth(targetEmail: string, forceSelectAccount: boolean): Promise<string> {
+export async function getGoogleDriveAccessToken(userEmail?: string, forceSelectAccount: boolean = false): Promise<string> {
+  const targetEmail = userEmail || 'threadsandtailsshop@gmail.com';
   const auth = getWorkspaceAuth();
   const provider = new GoogleAuthProvider();
   provider.addScope(DRIVE_SCOPE);
@@ -153,102 +151,30 @@ async function authenticateViaRealFirebaseAuth(targetEmail: string, forceSelectA
   }
   provider.setCustomParameters(customParams);
 
-  const result = await signInWithPopup(auth, provider);
-  const credential = GoogleAuthProvider.credentialFromResult(result);
-  
-  if (!credential?.accessToken) {
-    throw new Error('No access token returned from Google authorization. Please approve Google Drive permissions.');
-  }
-
-  return credential.accessToken;
-}
-
-/**
- * Secondary Strategy: Google Identity Services token client
- */
-async function authenticateViaGsi(targetEmail: string, forceSelectAccount: boolean): Promise<string> {
-  const clientId = firebaseAppletConfig.oAuthClientId;
-  if (!clientId) throw new Error('Missing oAuthClientId in configuration.');
-
-  await loadGsiClient();
-  const google = (window as any).google;
-  if (!google?.accounts?.oauth2) {
-    throw new Error('Google Identity Services unavailable.');
-  }
-
-  return new Promise<string>((resolve, reject) => {
-    let hasResolved = false;
-    try {
-      const client = google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: DRIVE_SCOPE,
-        hint: targetEmail,
-        callback: (resp: any) => {
-          hasResolved = true;
-          if (resp.error) {
-            reject(new Error(resp.error_description || resp.error));
-            return;
-          }
-          if (resp.access_token) {
-            resolve(resp.access_token);
-          } else {
-            reject(new Error('No access token received from Google.'));
-          }
-        },
-      });
-
-      client.requestAccessToken({
-        prompt: forceSelectAccount ? 'select_account' : 'consent',
-      });
-
-      setTimeout(() => {
-        if (!hasResolved) {
-          reject(new Error('Authorization timed out or was closed by user.'));
-        }
-      }, 35000);
-    } catch (e) {
-      reject(e);
-    }
-  });
-}
-
-/**
- * Obtains a Google Drive access token using official Google OAuth flows.
- * Tries the real Firebase Auth popup first, then falls back to GIS.
- * Completely decoupled from Supabase so 'Unsupported provider' error never occurs.
- */
-export async function getGoogleDriveAccessToken(userEmail?: string, forceSelectAccount: boolean = false): Promise<string> {
-  const targetEmail = userEmail || 'threadsandtailsshop@gmail.com';
-  let lastError: any = null;
-
-  // 1. Try real Firebase Auth popup first (routes through authorized firebaseapp.com handler)
   try {
-    const token = await authenticateViaRealFirebaseAuth(targetEmail, forceSelectAccount);
-    if (token) {
-      await saveMasterDriveToken(token);
-      return token;
+    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    
+    if (!credential?.accessToken) {
+      throw new Error('No access token returned from Google authorization.');
     }
+
+    const token = credential.accessToken;
+    await saveMasterDriveToken(token);
+    return token;
   } catch (err: any) {
-    console.warn('Real Firebase Auth attempt failed, trying GIS fallback:', err);
-    lastError = err;
+    console.warn('Firebase Auth Google popup failed:', err);
+
     if (err?.code === 'auth/popup-closed-by-user') {
       throw new Error('Google authorization popup was closed before completing sign-in.');
     }
-  }
-
-  // 2. Try GIS fallback
-  try {
-    const token = await authenticateViaGsi(targetEmail, forceSelectAccount);
-    if (token) {
-      await saveMasterDriveToken(token);
-      return token;
+    if (err?.code === 'auth/cancelled-popup-request') {
+      throw new Error('Another authorization popup is already active.');
     }
-  } catch (gsiErr: any) {
-    console.warn('GIS fallback also failed:', gsiErr);
-    lastError = gsiErr;
+    
+    // Provide a clear explanation if domain mismatch or operation not allowed occurs
+    throw new Error(
+      err?.message || 'Google authorization could not be completed via popup. You can connect using an OAuth Access Token.'
+    );
   }
-
-  throw new Error(
-    lastError?.message || 'Could not connect to Google Drive. Please ensure popups and third-party cookies are allowed.'
-  );
 }
