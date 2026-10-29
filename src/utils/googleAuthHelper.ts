@@ -1,56 +1,47 @@
 import firebaseAppletConfig from '../../firebase-applet-config.json';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
-declare global {
-  interface Window {
-    google?: any;
-  }
-}
-
 export const MASTER_DRIVE_DOC = 'google_drive_master';
+export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
 /**
- * Ensures Google Identity Services (GIS) client script is loaded
+ * Initializes and caches the dedicated Firebase Auth instance for Google Workspace OAuth
  */
-export function loadGsiScript(): Promise<void> {
-  if (typeof window === 'undefined') return Promise.resolve();
-  if (window.google?.accounts?.oauth2) return Promise.resolve();
-
-  return new Promise((resolve, reject) => {
-    const existing = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
-    if (existing) {
-      if (window.google?.accounts?.oauth2) {
-        resolve();
-        return;
-      }
-      existing.addEventListener('load', () => resolve());
-      existing.addEventListener('error', () => reject(new Error('Failed to load Google Identity Services.')));
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.defer = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load Google Identity Services.'));
-    document.head.appendChild(script);
-  });
+function getWorkspaceAuth() {
+  let oauthApp;
+  if (getApps().some(a => a.name === 'workspaceOauthApp')) {
+    oauthApp = getApp('workspaceOauthApp');
+  } else {
+    oauthApp = initializeApp(firebaseAppletConfig, 'workspaceOauthApp');
+  }
+  return getAuth(oauthApp);
 }
+
+/**
+ * In-memory token cache to prevent unnecessary popup re-authorizations
+ */
+let inMemoryAccessToken: string | null = null;
+let inMemoryTokenExpiry: number = 0;
 
 /**
  * Stores the master owner's Google Drive authorization token in Firestore & localStorage
- * so that any client shop can sync directly to the owner's Google Drive.
+ * so that any client shop can sync backups directly into the central Google Drive.
  */
 export async function saveMasterDriveToken(token: string): Promise<void> {
   try {
+    inMemoryAccessToken = token;
+    inMemoryTokenExpiry = Date.now() + 55 * 60 * 1000;
+
     localStorage.setItem('master_google_drive_token', token);
     localStorage.setItem('master_google_drive_token_time', Date.now().toString());
 
     await setDoc(doc(db, 'system', MASTER_DRIVE_DOC), {
       accessToken: token,
       ownerEmail: 'threadsandtailsshop@gmail.com',
+      scope: DRIVE_SCOPE,
       updatedAt: serverTimestamp(),
       savedAtMs: Date.now(),
     }, { merge: true });
@@ -63,16 +54,23 @@ export async function saveMasterDriveToken(token: string): Promise<void> {
  * Retrieves the active master Google Drive access token.
  */
 export async function getMasterDriveToken(): Promise<string | null> {
-  // 1. Check local storage
+  // 1. Check in-memory cache
+  if (inMemoryAccessToken && Date.now() < inMemoryTokenExpiry) {
+    return inMemoryAccessToken;
+  }
+
+  // 2. Check local storage
   const localToken = localStorage.getItem('master_google_drive_token');
   const tokenTime = Number(localStorage.getItem('master_google_drive_token_time') || 0);
 
-  // Check if valid (< 55 minutes old)
+  // If valid (< 55 minutes old)
   if (localToken && Date.now() - tokenTime < 55 * 60 * 1000) {
+    inMemoryAccessToken = localToken;
+    inMemoryTokenExpiry = tokenTime + 55 * 60 * 1000;
     return localToken;
   }
 
-  // 2. Check Firestore
+  // 3. Check Firestore
   try {
     const snap = await getDoc(doc(db, 'system', MASTER_DRIVE_DOC));
     if (snap.exists()) {
@@ -81,6 +79,8 @@ export async function getMasterDriveToken(): Promise<string | null> {
         const savedAtMs = Number(data.savedAtMs) || 0;
         // If saved within the last 55 minutes
         if (!savedAtMs || Date.now() - savedAtMs < 55 * 60 * 1000) {
+          inMemoryAccessToken = data.accessToken;
+          inMemoryTokenExpiry = (savedAtMs || Date.now()) + 55 * 60 * 1000;
           localStorage.setItem('master_google_drive_token', data.accessToken);
           localStorage.setItem('master_google_drive_token_time', savedAtMs ? savedAtMs.toString() : Date.now().toString());
           return data.accessToken;
@@ -95,103 +95,51 @@ export async function getMasterDriveToken(): Promise<string | null> {
 }
 
 /**
- * Obtains a Google Drive access token using Google Identity Services (GIS).
- * If userEmail is provided, uses it as a login hint and does not force account selection.
+ * Obtains a Google Drive access token using standard client-side Firebase Auth with GoogleAuthProvider.
+ * This routes through the pre-configured Firebase auth handler domain, completely avoiding
+ * origin_mismatch errors caused by ephemeral Cloud Run domains in Google Identity Services (GIS).
  */
 export async function getGoogleDriveAccessToken(userEmail?: string, forceSelectAccount: boolean = false): Promise<string> {
-  const clientId = firebaseAppletConfig.oAuthClientId;
   const targetEmail = userEmail || 'threadsandtailsshop@gmail.com';
+  const auth = getWorkspaceAuth();
+  
+  const provider = new GoogleAuthProvider();
+  // Request Drive scope configured for this applet
+  provider.addScope(DRIVE_SCOPE);
 
-  // 1. Primary: Google Identity Services OAuth 2.0 token client
-  if (clientId) {
-    try {
-      await loadGsiScript();
-      if (window.google?.accounts?.oauth2) {
-        return await new Promise<string>((resolve, reject) => {
-          let hasResponded = false;
-          try {
-            const tokenClient = window.google.accounts.oauth2.initTokenClient({
-              client_id: clientId,
-              scope: 'https://www.googleapis.com/auth/drive.file',
-              hint: targetEmail,
-              callback: async (response: any) => {
-                hasResponded = true;
-                if (response.error) {
-                  if (response.error === 'access_denied') {
-                    reject(new Error(
-                      'Access Denied (403): Please approve Google Drive access for threadsandtailsshop@gmail.com.'
-                    ));
-                    return;
-                  }
-                  reject(new Error(response.error_description || response.error));
-                  return;
-                }
-                if (response.access_token) {
-                  await saveMasterDriveToken(response.access_token);
-                  resolve(response.access_token);
-                } else {
-                  reject(new Error('No access token received from Google authorization.'));
-                }
-              },
-            });
-
-            // Do not force select_account unless explicitly requested
-            const requestConfig: any = {};
-            if (forceSelectAccount) {
-              requestConfig.prompt = 'select_account';
-            } else {
-              requestConfig.prompt = 'consent';
-            }
-            tokenClient.requestAccessToken(requestConfig);
-
-            setTimeout(() => {
-              if (!hasResponded) {
-                reject(new Error('Google authorization timed out. Retrying with direct popup...'));
-              }
-            }, 25000);
-          } catch (gisErr) {
-            reject(gisErr);
-          }
-        });
-      }
-    } catch (gisError: any) {
-      console.warn('GIS client failed, attempting fallback to Firebase Google Auth popup:', gisError);
-    }
+  const customParams: Record<string, string> = {
+    prompt: forceSelectAccount ? 'select_account' : 'consent',
+  };
+  if (targetEmail) {
+    customParams.login_hint = targetEmail;
   }
+  provider.setCustomParameters(customParams);
 
-  // 2. Secondary fallback: Provisioned applet Firebase Auth instance
   try {
-    const { initializeApp, getApps, getApp } = await import('firebase/app');
-    const { getAuth, GoogleAuthProvider, signInWithPopup } = await import('firebase/auth');
-
-    let oauthApp;
-    if (getApps().some(a => a.name === 'appletOauth')) {
-      oauthApp = getApp('appletOauth');
-    } else {
-      oauthApp = initializeApp(firebaseAppletConfig, 'appletOauth');
-    }
-
-    const oauthAuth = getAuth(oauthApp);
-    const provider = new GoogleAuthProvider();
-    provider.addScope('https://www.googleapis.com/auth/drive.file');
-    provider.setCustomParameters({ login_hint: targetEmail });
-
-    const result = await signInWithPopup(oauthAuth, provider);
+    const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
+    
     if (!credential?.accessToken) {
-      throw new Error('No access token returned from Google authorization.');
+      throw new Error('No access token returned from Google authorization. Please approve Google Drive permission.');
     }
-    await saveMasterDriveToken(credential.accessToken);
-    return credential.accessToken;
-  } catch (fbErr: any) {
-    if (fbErr?.code === 'auth/unauthorized-domain') {
+
+    const accessToken = credential.accessToken;
+    await saveMasterDriveToken(accessToken);
+    return accessToken;
+  } catch (err: any) {
+    console.error('Google Drive Auth Error:', err);
+
+    if (err?.code === 'auth/popup-closed-by-user') {
+      throw new Error('Google authorization popup was closed before completing authorization.');
+    }
+    if (err?.code === 'auth/cancelled-popup-request') {
+      throw new Error('Another authorization popup was opened.');
+    }
+    if (err?.code === 'auth/unauthorized-domain') {
       throw new Error(
-        'Google popup was blocked or unauthorized. Please ensure popups are enabled for this page.'
+        'The current domain is not yet authorized in Firebase Console. Please verify authorized domains in Firebase Authentication Settings.'
       );
     }
-    if (fbErr?.code === 'auth/popup-closed-by-user') {
-      throw new Error('Google authorization was cancelled.');
-    }
-    throw fbErr;
+    throw new Error(err.message || 'Google Drive authorization failed.');
   }
 }
