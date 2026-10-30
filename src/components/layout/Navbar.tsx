@@ -1,4 +1,4 @@
-import { Bell, LogOut, Menu, ChevronDown, Settings, ShieldCheck, Store, ShoppingCart } from 'lucide-react';
+import { Bell, LogOut, Menu, ChevronDown, Settings, ShieldCheck, Store } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -95,23 +95,6 @@ export function Navbar({ onMenuClick, showMenuButton }: NavbarProps) {
 
       {/* Right actions */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-
-        {/* Purchase Mobile quick navigation in Navbar */}
-        {!isSuperAdminRoute && (
-          <button
-            type="button"
-            onClick={() => navigate('/purchase-mobile')}
-            className={`hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer ${
-              location.pathname === '/purchase-mobile'
-                ? 'bg-[#522D60] text-white shadow-xs'
-                : 'bg-[#FAF5FC] text-[#522D60] hover:bg-[#F3E8FA] border border-[#522D60]/20'
-            }`}
-            title="Purchase Mobile"
-          >
-            <ShoppingCart className="w-3.5 h-3.5" />
-            <span>Purchase Mobile</span>
-          </button>
-        )}
 
         {/* Low Stock Alerts Notification Bell - ONLY shown in Shop POS, NEVER in Super Admin */}
         {!isSuperAdminRoute && (
