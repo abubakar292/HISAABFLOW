@@ -8,7 +8,9 @@ import { Button } from '../components/ui/Button';
 import { SearchBar } from '../components/ui/SearchBar';
 import { SHOP_CONFIG } from '../config/shopConfig';
 import { BillPreviewModal } from '../components/ui/BillPreviewModal';
-import html2pdf from 'html2pdf.js';
+import { useToast } from '../contexts/ToastContext';
+import { exportInventoryValuationPdf } from '../utils/exportInventoryPdf';
+import { playSuccessSound } from '../utils/soundEffects';
 
 interface MobileStockItem {
   id: string;
@@ -25,6 +27,7 @@ interface MobileStockItem {
 
 export default function InventoryValuationPage() {
   const { user, shopProfile, currentShopId } = useAuth();
+  const { success, error, toast } = useToast();
   const [activeTab, setActiveTab] = useState<'units' | 'value'>('units');
   const [stock, setStock] = useState<MobileStockItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,6 +35,7 @@ export default function InventoryValuationPage() {
   const [selectedCompany, setSelectedCompany] = useState<string>('All');
   const [showPrintPreview, setShowPrintPreview] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -109,110 +113,131 @@ export default function InventoryValuationPage() {
     const currentShortName = shopProfile?.shortName || SHOP_CONFIG.shortName;
     const currentPhone = shopProfile?.phone || SHOP_CONFIG.phone;
     const currentSubTitle = shopProfile?.subTitle || SHOP_CONFIG.subTitle;
+    const logoUrl = shopProfile?.logoUrl || '/logo.png';
 
     return `
-      <div style="font-family: system-ui, -apple-system, sans-serif; color: #0f172a; padding: 24px; background: #ffffff; max-width: 900px; margin: 0 auto;">
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; padding: 12px; background: #ffffff; width: 100%; max-width: 720px; margin: 0 auto; box-sizing: border-box;">
         <!-- Header -->
-        <div style="text-align: center; margin-bottom: 24px; background: #522D60; color: #ffffff; padding: 24px; border-radius: 12px;">
-          <h1 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: 1px; color: #ffffff;">
-            ${currentShopName.toUpperCase()} (${currentShortName})
-          </h1>
-          <p style="margin: 6px 0 0 0; color: #E9D5FF; font-weight: 600; font-size: 13px; letter-spacing: 1px; text-transform: uppercase;">
-            ${currentSubTitle.toUpperCase()} • TEL: ${currentPhone}
-          </p>
-          <div style="margin-top: 10px; display: inline-block; background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.3); padding: 4px 16px; border-radius: 20px;">
-            <span style="font-size: 12px; font-weight: 700; color: #ffffff; letter-spacing: 0.5px;">INVENTORY VALUATION & AUDIT REPORT</span>
-          </div>
-        </div>
-
-        <!-- Meta Summary -->
-        <div style="display: flex; justify-content: space-between; align-items: center; background: #F8FAFC; border: 1px solid #E2E8F0; padding: 14px 20px; border-radius: 8px; margin-bottom: 20px;">
-          <div>
-            <div style="font-size: 11px; font-weight: 600; color: #64748B;">REPORT DATE & TIME</div>
-            <div style="font-size: 14px; font-weight: 700; color: #0F172A;">${dateStr} at ${timeStr}</div>
-          </div>
-          <div>
-            <div style="font-size: 11px; font-weight: 600; color: #64748B; text-align: center;">TOTAL STOCK UNITS</div>
-            <div style="font-size: 16px; font-weight: 800; color: #1E293B; text-align: center;">${totalUnits} Units</div>
+        <div style="background: #522D60; color: #ffffff; padding: 14px 18px; border-radius: 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <img src="${logoUrl}" alt="${currentShopName}" style="max-width: 44px; max-height: 38px; object-fit: contain; border-radius: 6px; background: #ffffff; padding: 2px;" onerror="this.style.display='none'" />
+            <div>
+              <h1 style="margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -0.2px; color: #ffffff; line-height: 1.2;">
+                ${currentShopName.toUpperCase()}
+              </h1>
+              <p style="margin: 3px 0 0 0; color: #E9D5FF; font-weight: 500; font-size: 11px;">
+                ${currentSubTitle ? `${currentSubTitle} • ` : ''}Tel: ${currentPhone}
+              </p>
+            </div>
           </div>
           <div style="text-align: right;">
-            <div style="font-size: 11px; font-weight: 600; color: #64748B;">TOTAL INVENTORY VALUE</div>
-            <div style="font-size: 18px; font-weight: 800; color: #059669;">Rs. ${totalValue.toLocaleString()}</div>
+            <span style="display: inline-block; background: rgba(255, 255, 255, 0.18); color: #ffffff; padding: 3px 10px; border-radius: 20px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.5px;">
+              VALUATION REPORT
+            </span>
+            <div style="font-size: 10px; color: #E9D5FF; margin-top: 3px;">${dateStr} ${timeStr}</div>
           </div>
         </div>
 
-        <!-- Table -->
-        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
-          <thead>
-            <tr style="background: #522D60; color: #ffffff;">
-              <th style="padding: 10px 12px; width: 40px; text-align: center; border-radius: 6px 0 0 0;">#</th>
-              <th style="padding: 10px 12px;">Mobile Model</th>
-              <th style="padding: 10px 12px;">Company</th>
-              <th style="padding: 10px 12px; text-align: center;">RAM / ROM</th>
-              <th style="padding: 10px 12px; text-align: center;">Qty</th>
-              <th style="padding: 10px 12px; text-align: right;">Base Price</th>
-              <th style="padding: 10px 12px; text-align: right; border-radius: 0 6px 0 0;">Total Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${stock.map((item, idx) => `
-              <tr style="border-bottom: 1px solid #E2E8F0; background: ${idx % 2 === 0 ? '#ffffff' : '#F8FAFC'};">
-                <td style="padding: 10px 12px; text-align: center; color: #64748B;">${idx + 1}</td>
-                <td style="padding: 10px 12px; font-weight: 600; color: #0F172A;">${item.modelName}</td>
-                <td style="padding: 10px 12px; color: #475569;">${item.company}</td>
-                <td style="padding: 10px 12px; text-align: center; color: #64748B;">${item.ramRom || '-'}</td>
-                <td style="padding: 10px 12px; text-align: center; font-weight: 700; color: #0F172A;">${item.quantity}</td>
-                <td style="padding: 10px 12px; text-align: right; color: #475569;">Rs. ${item.basePrice.toLocaleString()}</td>
-                <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: #0F172A;">Rs. ${item.totalValue.toLocaleString()}</td>
+        <!-- Meta Summary Strip -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; background: #F8FAFC; border: 1px solid #E2E8F0; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 11.5px;">
+          <div>
+            <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase;">Generated Date</div>
+            <div style="font-weight: 700; color: #0F172A; margin-top: 2px;">${dateStr}</div>
+          </div>
+          <div>
+            <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase;">Total Stock</div>
+            <div style="font-weight: 800; color: #522D60; margin-top: 2px; font-size: 13px;">${totalUnits} Units</div>
+          </div>
+          <div>
+            <div style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase;">Inventory Value</div>
+            <div style="font-weight: 900; color: #059669; margin-top: 2px; font-size: 14px;">Rs. ${totalValue.toLocaleString()}</div>
+          </div>
+        </div>
+
+        <!-- Responsive Items Table Wrapper -->
+        <div style="width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid #E2E8F0; border-radius: 8px; background: #ffffff;">
+          <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 11.5px; min-width: 480px;">
+            <thead>
+              <tr style="background: #F1F5F9; color: #475569;">
+                <th style="padding: 7px 8px; width: 32px; text-align: center; font-size: 10.5px;">#</th>
+                <th style="padding: 7px 8px; font-size: 10.5px;">Model</th>
+                <th style="padding: 7px 8px; font-size: 10.5px;">Brand</th>
+                <th style="padding: 7px 8px; text-align: center; font-size: 10.5px;">Specs</th>
+                <th style="padding: 7px 8px; text-align: center; font-size: 10.5px;">Qty</th>
+                <th style="padding: 7px 8px; text-align: right; font-size: 10.5px;">Base Price</th>
+                <th style="padding: 7px 8px; text-align: right; font-size: 10.5px;">Total Value</th>
               </tr>
-            `).join('')}
-          </tbody>
-          <tfoot>
-            <tr style="background: #FDFBFF; border-top: 2px solid #522D60; font-weight: 800;">
-              <td colspan="4" style="padding: 14px 12px; text-align: right; color: #522D60; font-size: 13px;">GRAND TOTAL:</td>
-              <td style="padding: 14px 12px; text-align: center; color: #522D60; font-size: 14px;">${totalUnits}</td>
-              <td style="padding: 14px 12px; text-align: right; color: #522D60;">-</td>
-              <td style="padding: 14px 12px; text-align: right; color: #059669; font-size: 16px;">Rs. ${totalValue.toLocaleString()}</td>
-            </tr>
-          </tfoot>
-        </table>
+            </thead>
+            <tbody>
+              ${stock.map((item, idx) => `
+                <tr style="border-bottom: 1px solid #F1F5F9; background: ${idx % 2 === 0 ? '#ffffff' : '#FBFDFF'};">
+                  <td style="padding: 7px 8px; text-align: center; color: #94A3B8; font-size: 10.5px;">${idx + 1}</td>
+                  <td style="padding: 7px 8px; font-weight: 700; color: #0F172A;">${item.modelName}</td>
+                  <td style="padding: 7px 8px; color: #475569;">${item.company}</td>
+                  <td style="padding: 7px 8px; text-align: center; color: #64748B;">${item.ramRom || '-'}</td>
+                  <td style="padding: 7px 8px; text-align: center; font-weight: 700; color: #0F172A;">${item.quantity}</td>
+                  <td style="padding: 7px 8px; text-align: right; color: #475569;">Rs. ${item.basePrice.toLocaleString()}</td>
+                  <td style="padding: 7px 8px; text-align: right; font-weight: 700; color: #0F172A;">Rs. ${item.totalValue.toLocaleString()}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+            <tfoot>
+              <tr style="background: #FDFBFF; border-top: 2px solid #522D60; font-weight: 800;">
+                <td colspan="4" style="padding: 10px 8px; text-align: right; color: #522D60; font-size: 11.5px;">GRAND TOTAL:</td>
+                <td style="padding: 10px 8px; text-align: center; color: #522D60; font-size: 12px;">${totalUnits}</td>
+                <td style="padding: 10px 8px; text-align: right; color: #522D60;">-</td>
+                <td style="padding: 10px 8px; text-align: right; color: #059669; font-size: 14px;">Rs. ${totalValue.toLocaleString()}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
 
         <!-- Footer -->
-        <div style="margin-top: 30px; padding-top: 14px; border-top: 1px solid #E2E8F0; text-align: center; font-size: 11px; color: #64748B;">
-          <p style="margin: 0;">Generated by <strong>HISAABFLOW (${currentShopName})</strong> • ${SHOP_CONFIG.address}</p>
+        <div style="margin-top: 14px; padding-top: 10px; border-top: 1px dashed #E2E8F0; text-align: center; font-size: 10.5px; color: #64748B;">
+          <p style="margin: 0;">Report for <strong>${currentShopName}</strong> • ${SHOP_CONFIG.address} • Contact: ${currentPhone}</p>
         </div>
       </div>
     `;
   };
 
   const handleExportPDF = () => {
-    const html = generateReportHtml();
-    const container = document.createElement('div');
-    container.innerHTML = html;
-    
-    const opt = {
-      margin: 0.3,
-      filename: `HISAABFLOW_Inventory_Valuation_${new Date().toISOString().slice(0, 10)}.pdf`,
-      image: { type: 'jpeg' as const, quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true },
-      jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' as const }
-    };
-    
-    html2pdf().set(opt).from(container).save();
+    if (isExportingPdf) return;
+    setIsExportingPdf(true);
+
+    try {
+      exportInventoryValuationPdf(stock, totalUnits, totalValue, shopProfile);
+      playSuccessSound();
+      success('Inventory valuation PDF downloaded successfully!');
+    } catch (err: any) {
+      console.error('PDF direct export error:', err);
+      error(err.message || 'Failed to download PDF. Please try again.');
+    } finally {
+      setIsExportingPdf(false);
+    }
   };
 
   const handlePrint = () => {
     const html = `
       <!DOCTYPE html>
-      <html>
+      <html lang="en">
         <head>
+          <meta charset="utf-8" />
           <title>${shopProfile?.shopName || 'HISAABFLOW'} Inventory Valuation Report</title>
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           <style>
-            body { margin: 0; padding: 10px; background: white; font-family: system-ui, sans-serif; }
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body {
+              margin: 0;
+              padding: 12px;
+              background: #ffffff;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            }
+            @media (max-width: 480px) {
+              body { padding: 6px; }
+            }
             @media print {
-              body { padding: 0; }
-              @page { margin: 1cm; size: portrait; }
+              body { padding: 0 !important; background: #fff !important; }
+              @page { margin: 6mm; size: portrait; }
             }
           </style>
         </head>
@@ -267,11 +292,13 @@ export default function InventoryValuationPage() {
           </Button>
           <Button 
             onClick={handleExportPDF} 
+            disabled={isExportingPdf}
+            isLoading={isExportingPdf}
             size="sm" 
             className="h-10 text-xs sm:text-sm bg-[#522D60] hover:bg-[#42244D] text-white font-bold justify-center shadow-xs active:scale-95 px-2.5 cursor-pointer border-none"
           >
             <Download className="w-3.5 h-3.5 sm:mr-1.5 shrink-0" />
-            <span>PDF Export</span>
+            <span>{isExportingPdf ? 'Exporting...' : 'PDF Export'}</span>
           </Button>
         </div>
       </div>

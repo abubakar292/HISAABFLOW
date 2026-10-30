@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
+import { ConfirmProvider } from './contexts/ConfirmContext';
 import { ProtectedRoute, PublicRoute } from './components/ProtectedRoute';
 import AppLoader from './components/AppLoader';
 import LoginPage from './pages/LoginPage';
@@ -56,8 +57,9 @@ function AppBootstrap({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <ToastProvider>
-      <AuthProvider>
-        <AppBootstrap>
+      <ConfirmProvider>
+        <AuthProvider>
+          <AppBootstrap>
           <Router>
             <Routes>
               <Route element={<PublicRoute />}>
@@ -86,6 +88,7 @@ export default function App() {
           </Router>
         </AppBootstrap>
       </AuthProvider>
+      </ConfirmProvider>
     </ToastProvider>
   );
 }

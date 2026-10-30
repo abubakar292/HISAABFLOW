@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Check, Printer, Eye, Share2, Bluetooth } from 'lucide-react';
 import { Modal } from './Modal';
@@ -8,6 +8,7 @@ import { BluetoothPrinterModal } from './BluetoothPrinterModal';
 import { getBillHtml } from '../../utils/printBill';
 import { getWhatsAppSaleBillUrl } from '../../config/shopConfig';
 import { useAuth } from '../../contexts/AuthContext';
+import { playSaleSound } from '../../utils/soundEffects';
 
 interface PrintPromptModalProps {
   isOpen: boolean;
@@ -20,6 +21,12 @@ export function PrintPromptModal({ isOpen, onClose, billData, profit }: PrintPro
   const { shopProfile } = useAuth();
   const [showPreview, setShowPreview] = useState(false);
   const [showBluetooth, setShowBluetooth] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      playSaleSound();
+    }
+  }, [isOpen]);
 
   const handleOpenPreview = () => {
     setShowPreview(true);

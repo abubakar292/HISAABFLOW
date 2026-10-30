@@ -1,4 +1,4 @@
-import { Bell, LogOut, Menu, ChevronDown, Settings, ShieldCheck, Store } from 'lucide-react';
+import { Bell, LogOut, Menu, ChevronDown, Settings, ShieldCheck, Store, ShoppingCart } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -96,33 +96,64 @@ export function Navbar({ onMenuClick, showMenuButton }: NavbarProps) {
       {/* Right actions */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
 
+        {/* Purchase Mobile quick navigation in Navbar */}
+        {!isSuperAdminRoute && (
+          <button
+            type="button"
+            onClick={() => navigate('/purchase-mobile')}
+            className={`hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer ${
+              location.pathname === '/purchase-mobile'
+                ? 'bg-[#522D60] text-white shadow-xs'
+                : 'bg-[#FAF5FC] text-[#522D60] hover:bg-[#F3E8FA] border border-[#522D60]/20'
+            }`}
+            title="Purchase Mobile"
+          >
+            <ShoppingCart className="w-3.5 h-3.5" />
+            <span>Purchase Mobile</span>
+          </button>
+        )}
+
         {/* Low Stock Alerts Notification Bell - ONLY shown in Shop POS, NEVER in Super Admin */}
         {!isSuperAdminRoute && (
           <div className="relative">
             <button 
-              onClick={() => setShowNotifications(!showNotifications)}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowNotifications(prev => !prev);
+              }}
               className="p-2 rounded-xl text-gray-600 hover:bg-gray-100 hover:text-[#522D60] transition-colors relative active:scale-95 cursor-pointer"
               aria-label="Notifications"
             >
               <Bell className="w-5 h-5" />
               {lowStockMobiles.length > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full animate-pulse" />
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full animate-pulse ring-2 ring-white" />
               )}
             </button>
             
             <AnimatePresence>
               {showNotifications && (
                 <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
+                  <div 
+                    className="fixed inset-0 z-40 bg-black/10 sm:bg-transparent" 
+                    onClick={() => setShowNotifications(false)} 
+                  />
                   <motion.div 
-                    initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                    initial={{ opacity: 0, scale: 0.95, y: -6 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                    className="fixed inset-x-3 sm:inset-auto sm:right-0 top-[calc(3.75rem+env(safe-area-inset-top,0px)+8px)] sm:top-full sm:mt-2 sm:w-80 max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 z-50 text-left mx-auto sm:mx-0"
+                    exit={{ opacity: 0, scale: 0.95, y: -6 }}
+                    transition={{ duration: 0.15 }}
+                    className="fixed inset-x-3 sm:absolute sm:inset-x-auto sm:right-0 top-[calc(3.75rem+env(safe-area-inset-top,0px)+8px)] sm:top-full sm:mt-2 w-auto sm:w-80 max-w-[calc(100vw-1.5rem)] bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 z-50 text-left"
+                    onClick={(e) => e.stopPropagation()}
                   >
                     <h4 className="text-xs font-bold text-gray-900 border-b border-gray-100 pb-2 mb-2 flex items-center justify-between">
-                      <span>Low Stock Alerts</span>
-                      <span className="text-[10px] text-gray-500">{lowStockMobiles.length} items</span>
+                      <div className="flex items-center gap-1.5">
+                        <Bell className="w-3.5 h-3.5 text-[#522D60]" />
+                        <span>Low Stock Alerts</span>
+                      </div>
+                      <span className="text-[10px] font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100">
+                        {lowStockMobiles.length} items
+                      </span>
                     </h4>
                     {lowStockMobiles.length === 0 ? (
                       <p className="text-xs text-gray-500 py-3 text-center">All mobile stocks are healthy</p>
@@ -135,8 +166,9 @@ export function Navbar({ onMenuClick, showMenuButton }: NavbarProps) {
                               <p className="text-[10px] text-gray-500">Remaining: {m.quantity}</p>
                             </div>
                             <button 
+                              type="button"
                               onClick={() => { setShowNotifications(false); navigate('/purchase-mobile'); }}
-                              className="text-[10px] bg-rose-600 text-white font-bold px-2.5 py-1 rounded-lg hover:bg-rose-700"
+                              className="text-[10px] bg-rose-600 text-white font-bold px-2.5 py-1 rounded-lg hover:bg-rose-700 cursor-pointer"
                             >
                               Restock
                             </button>

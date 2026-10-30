@@ -4,7 +4,8 @@ import { Button } from '../components/ui/Button';
 import { 
   Store, User, LogOut, Download, 
   RefreshCw, HardDrive, Cloud, AlertTriangle,
-  Upload, Trash2, Image as ImageIcon, Camera, CheckCircle2, Eye, Receipt
+  Upload, Trash2, Image as ImageIcon, Camera, CheckCircle2, Eye, Receipt,
+  Volume2, VolumeX, Bell
 } from 'lucide-react';
 import { useToast } from '../contexts/ToastContext';
 import { Modal } from '../components/ui/Modal';
@@ -16,6 +17,15 @@ import {
 import { getMasterDriveToken } from '../utils/googleAuthHelper';
 import { restoreShopBackup, ShopBackupData } from '../utils/backupService';
 import { compressImage } from '../utils/imageUtils';
+import { 
+  isSoundEffectsEnabled, 
+  setSoundEffectsEnabled, 
+  playSaleSound, 
+  playSuccessSound, 
+  playErrorSound, 
+  playDeleteSound, 
+  playScanSound 
+} from '../utils/soundEffects';
 import { format } from 'date-fns';
 
 export default function SettingsPage() {
@@ -51,6 +61,21 @@ export default function SettingsPage() {
   const [isDownloadingLocal, setIsDownloadingLocal] = useState(false);
   const [hasMasterDrive, setHasMasterDrive] = useState<boolean | null>(null);
   const [isAuthorizingMaster, setIsAuthorizingMaster] = useState(false);
+
+  // Sound Effects State
+  const [soundEnabled, setSoundEnabled] = useState(() => isSoundEffectsEnabled());
+
+  const handleToggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    setSoundEffectsEnabled(next);
+    if (next) {
+      playSuccessSound();
+      success('Sound effects enabled.');
+    } else {
+      toast('Sound effects muted.', 'info');
+    }
+  };
 
   // Restore State
   const [showRestoreModal, setShowRestoreModal] = useState(false);
@@ -555,7 +580,120 @@ export default function SettingsPage() {
         </form>
       </div>
 
-      {/* ── 2. BACKUP & CLOUD STORAGE ── */}
+      {/* ── 2. AUDIO & SOUND EFFECTS ── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-purple-50 text-[#522D60] flex items-center justify-center font-bold">
+              {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 text-gray-400" />}
+            </div>
+            <div>
+              <h2 className="font-bold text-gray-900 text-sm">App Sound Effects</h2>
+              <p className="text-[11px] text-gray-400">Light, elegant audio cues for sales, scans, and system actions</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleToggleSound}
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+              soundEnabled ? 'bg-[#522D60]' : 'bg-gray-200'
+            }`}
+            role="switch"
+            aria-checked={soundEnabled}
+            title={soundEnabled ? 'Mute sound effects' : 'Enable sound effects'}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                soundEnabled ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-gray-600">
+            <div>
+              <p className="font-semibold text-gray-800">
+                Status:{' '}
+                <span className={soundEnabled ? 'text-emerald-600 font-bold' : 'text-gray-400 font-bold'}>
+                  {soundEnabled ? 'Enabled (Light, Clear & Non-intrusive)' : 'Disabled / Muted'}
+                </span>
+              </p>
+              <p className="text-[11px] text-gray-400 mt-0.5">
+                Mathematical Web Audio synthesis. No heavy media downloads, zero latency, works 100% offline.
+              </p>
+            </div>
+          </div>
+
+          {/* Interactive Sound Test Strip */}
+          <div>
+            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2">Test Action Sounds</p>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              <button
+                type="button"
+                onClick={() => playSaleSound()}
+                disabled={!soundEnabled}
+                className="flex flex-col items-center justify-center p-3 rounded-xl border border-gray-200 hover:border-[#522D60] hover:bg-purple-50/50 transition-all text-center disabled:opacity-40 disabled:hover:border-gray-200 disabled:hover:bg-transparent cursor-pointer group"
+                title="Play Sale Bell"
+              >
+                <Bell className="w-4 h-4 text-[#522D60] mb-1.5 group-hover:scale-110 transition-transform" />
+                <span className="text-xs font-bold text-gray-800 group-hover:text-[#522D60]">Sale Chime</span>
+                <span className="text-[10px] text-gray-400 mt-0.5">Checkout ding</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => playSuccessSound()}
+                disabled={!soundEnabled}
+                className="flex flex-col items-center justify-center p-3 rounded-xl border border-gray-200 hover:border-emerald-500 hover:bg-emerald-50/50 transition-all text-center disabled:opacity-40 disabled:hover:border-gray-200 disabled:hover:bg-transparent cursor-pointer group"
+                title="Play Success Chord"
+              >
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 mb-1.5 group-hover:scale-110 transition-transform" />
+                <span className="text-xs font-bold text-gray-800 group-hover:text-emerald-700">Success</span>
+                <span className="text-[10px] text-gray-400 mt-0.5">Save / add data</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => playScanSound()}
+                disabled={!soundEnabled}
+                className="flex flex-col items-center justify-center p-3 rounded-xl border border-gray-200 hover:border-blue-500 hover:bg-blue-50/50 transition-all text-center disabled:opacity-40 disabled:hover:border-gray-200 disabled:hover:bg-transparent cursor-pointer group"
+                title="Play Barcode Beep"
+              >
+                <Camera className="w-4 h-4 text-blue-600 mb-1.5 group-hover:scale-110 transition-transform" />
+                <span className="text-xs font-bold text-gray-800 group-hover:text-blue-700">Scan Beep</span>
+                <span className="text-[10px] text-gray-400 mt-0.5">IMEI camera</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => playDeleteSound()}
+                disabled={!soundEnabled}
+                className="flex flex-col items-center justify-center p-3 rounded-xl border border-gray-200 hover:border-rose-500 hover:bg-rose-50/50 transition-all text-center disabled:opacity-40 disabled:hover:border-gray-200 disabled:hover:bg-transparent cursor-pointer group"
+                title="Play Delete Drop"
+              >
+                <Trash2 className="w-4 h-4 text-rose-600 mb-1.5 group-hover:scale-110 transition-transform" />
+                <span className="text-xs font-bold text-gray-800 group-hover:text-rose-700">Delete Pop</span>
+                <span className="text-[10px] text-gray-400 mt-0.5">Item removed</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => playErrorSound()}
+                disabled={!soundEnabled}
+                className="flex flex-col items-center justify-center p-3 rounded-xl border border-gray-200 hover:border-amber-500 hover:bg-amber-50/50 transition-all text-center disabled:opacity-40 disabled:hover:border-gray-200 disabled:hover:bg-transparent cursor-pointer group"
+                title="Play Notice Warning"
+              >
+                <AlertTriangle className="w-4 h-4 text-amber-600 mb-1.5 group-hover:scale-110 transition-transform" />
+                <span className="text-xs font-bold text-gray-800 group-hover:text-amber-700">Notice</span>
+                <span className="text-[10px] text-gray-400 mt-0.5">Polite warning</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── 3. BACKUP & CLOUD STORAGE ── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
         <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
           <div className="flex items-center gap-2.5">

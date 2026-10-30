@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, AlertTriangle, Info, XCircle, X } from 'lucide-react';
+import { playSuccessSound, playErrorSound } from '../utils/soundEffects';
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
 
@@ -36,6 +37,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const toast = useCallback((message: string, type: ToastType = 'info') => {
     const id = Math.random().toString(36).substring(2, 9);
     setToasts((prev) => [...prev, { id, message, type }]);
+
+    // Trigger subtle, polite sound effect
+    if (type === 'success') {
+      playSuccessSound();
+    } else if (type === 'error' || type === 'warning') {
+      playErrorSound();
+    }
 
     setTimeout(() => {
       removeToast(id);

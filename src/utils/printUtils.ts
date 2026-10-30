@@ -83,60 +83,46 @@ export function printInNewWindow(
   title = 'Print Receipt',
   iframeElement?: HTMLIFrameElement | null
 ): boolean {
+  // 1. If an active iframe is already rendered, directly print it (100% reliable, zero popup block)
+  if (iframeElement && iframeElement.contentWindow) {
+    try {
+      iframeElement.contentWindow.focus();
+      iframeElement.contentWindow.print();
+      return true;
+    } catch (err) {
+      console.warn('Direct iframe print threw error, trying window print:', err);
+    }
+  }
+
   const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
 
-  // 1. If running inside an iframe (e.g. preview environment where allow-modals may be restricted),
-  // open an unsandboxed top-level print window synchronously on user click.
-  if (isInIframe) {
+  // 2. If running inside top-level window, try window.print() or popup
+  if (!isInIframe) {
     try {
-      const printWindow = window.open('', '_blank', 'width=850,height=900,menubar=yes,scrollbars=yes,resizable=yes');
-      if (printWindow) {
-        const enhancedHtml = buildPrintableDocument(html, title);
-        printWindow.document.open();
-        printWindow.document.write(enhancedHtml);
-        printWindow.document.close();
-        printWindow.focus();
-        return true;
-      }
+      window.focus();
+      window.print();
+      return true;
     } catch (err) {
-      console.warn('Popup print window failed, falling back to in-frame print:', err);
+      // Fallback
     }
   }
 
-  // 2. Try printing via same-origin iframe if available
-  if (iframeElement) {
-    try {
-      const doc = iframeElement.contentDocument || iframeElement.contentWindow?.document;
-      const win = iframeElement.contentWindow;
-      if (doc && win) {
-        doc.open();
-        doc.write(html);
-        doc.close();
-
-        let printTriggered = false;
-        const onBeforePrint = () => {
-          printTriggered = true;
-        };
-        win.addEventListener('beforeprint', onBeforePrint, { once: true });
-
-        win.focus();
-        win.print();
-
-        // If running in an environment where win.print() was silently ignored by sandbox, open popup fallback
-        if (!printTriggered && !isInIframe) {
-          // Give browser a moment or return true as standard print call succeeded
-          return true;
-        }
-        if (printTriggered) {
-          return true;
-        }
-      }
-    } catch (err) {
-      console.warn('Iframe direct print failed:', err);
+  // 3. Try opening top-level popup window
+  try {
+    const printWindow = window.open('', '_blank', 'width=850,height=900,menubar=yes,scrollbars=yes,resizable=yes');
+    if (printWindow) {
+      const enhancedHtml = buildPrintableDocument(html, title);
+      printWindow.document.open();
+      printWindow.document.write(enhancedHtml);
+      printWindow.document.close();
+      printWindow.focus();
+      return true;
     }
+  } catch (err) {
+    console.warn('Popup print window failed:', err);
   }
 
-  // 3. Final fallback: open top-level window if not tried yet
+  // 4. Fallback: open basic popup window
   try {
     const fallbackWin = window.open('', '_blank');
     if (fallbackWin) {

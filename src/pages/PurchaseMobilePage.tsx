@@ -8,6 +8,7 @@ import { Modal } from '../components/ui/Modal';
 import { SearchBar } from '../components/ui/SearchBar';
 import { Badge } from '../components/ui/Badge';
 import { useToast } from '../contexts/ToastContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import { useAuth } from '../contexts/AuthContext';
 import { isDocForShop } from '../utils/multiTenantService';
 import { Edit, Trash2, Smartphone, QrCode } from 'lucide-react';
@@ -69,6 +70,7 @@ export default function PurchaseMobilePage() {
   });
 
   const { success, error } = useToast();
+  const { confirm } = useConfirm();
 
   const handleScan = (imei: string) => {
     if (activeScanField) {
@@ -208,11 +210,21 @@ export default function PurchaseMobilePage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this mobile?')) {
+  const handleDelete = async (id: string, name?: string) => {
+    const isConfirmed = await confirm({
+      title: 'Delete Mobile Stock',
+      message: name
+        ? `Are you sure you want to permanently delete "${name}" from your inventory? This cannot be undone.`
+        : 'Are you sure you want to permanently delete this mobile from your inventory? This cannot be undone.',
+      confirmText: 'Delete Mobile',
+      cancelText: 'Keep Mobile',
+      type: 'danger',
+    });
+
+    if (isConfirmed) {
       try {
         await deleteDoc(doc(db, 'mobiles', id));
-        success('Mobile deleted');
+        success('Mobile deleted successfully');
       } catch (err: any) {
         error(err.message || 'Error deleting mobile');
       }
@@ -315,7 +327,7 @@ export default function PurchaseMobilePage() {
                       <button onClick={() => handleOpenModal(m)} className="p-1.5 text-primary-500 hover:bg-primary-50 rounded-lg transition-colors">
                         <Edit className="w-4 h-4" />
                       </button>
-                      <button onClick={() => handleDelete(m.id)} className="p-1.5 text-accent-rose hover:bg-accent-rose/10 rounded-lg transition-colors">
+                      <button onClick={() => handleDelete(m.id, `${m.company} ${m.modelName}`)} className="p-1.5 text-accent-rose hover:bg-accent-rose/10 rounded-lg transition-colors cursor-pointer" title="Delete Mobile">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </td>
@@ -388,8 +400,8 @@ export default function PurchaseMobilePage() {
                       Edit
                     </button>
                     <button 
-                      onClick={() => handleDelete(m.id)} 
-                      className="px-2.5 py-1 text-xs font-semibold text-accent-rose bg-accent-rose/10 hover:bg-accent-rose/20 rounded-lg transition-colors flex items-center gap-1"
+                      onClick={() => handleDelete(m.id, `${m.company} ${m.modelName}`)} 
+                      className="px-2.5 py-1 text-xs font-semibold text-accent-rose bg-accent-rose/10 hover:bg-accent-rose/20 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       Delete

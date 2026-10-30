@@ -14,6 +14,7 @@ import {
 import { format } from 'date-fns';
 import { parseDateSafe } from '../utils/dateUtils';
 import { useToast } from '../contexts/ToastContext';
+import { useConfirm } from '../contexts/ConfirmContext';
 import { SUPABASE_SQL_SCHEMA } from '../lib/supabase';
 import { 
   getMasterDriveToken, 
@@ -38,6 +39,7 @@ export default function SuperAdminPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { success, toast } = useToast();
+  const { confirm } = useConfirm();
 
   const isMasterAdmin = 
     (user?.email || '').toLowerCase() === 'threadsandtailsshop@gmail.com' ||
@@ -156,7 +158,14 @@ export default function SuperAdminPage() {
   };
 
   const handleDisconnectDrive = async () => {
-    if (confirm('Disconnect Master Google Drive? Client shops will not be able to sync cloud backups until reconnected.')) {
+    const isConfirmed = await confirm({
+      title: 'Disconnect Master Google Drive',
+      message: 'Are you sure you want to disconnect Master Google Drive? Client shops will not be able to sync cloud backups until reconnected.',
+      confirmText: 'Disconnect Drive',
+      cancelText: 'Cancel',
+      type: 'warning',
+    });
+    if (isConfirmed) {
       await removeMasterDriveToken();
       setHasMasterDrive(false);
       setDriveEmail(null);

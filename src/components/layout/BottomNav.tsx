@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Smartphone, TrendingUp, ReceiptText, Menu } from 'lucide-react';
+import { LayoutDashboard, Smartphone, TrendingUp, ShoppingCart, Menu } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 interface BottomNavProps {
@@ -12,9 +12,9 @@ export function BottomNav({ onOpenMenu }: BottomNavProps) {
 
   const navItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Home' },
-    { path: '/mobiles-stock', icon: Smartphone, label: 'Stock' },
-    { path: '/mobile-sales', icon: TrendingUp, label: 'Sales' },
-    { path: '/expenses', icon: ReceiptText, label: 'Expenses' },
+    { path: '/purchase-mobile', icon: ShoppingCart, label: 'Purchase', fullLabel: 'Purchase Mobile' },
+    { path: '/mobiles-stock', icon: Smartphone, label: 'Stock', fullLabel: 'Mobiles Stock' },
+    { path: '/mobile-sales', icon: TrendingUp, label: 'Sales', fullLabel: 'Mobile Sales' },
   ];
 
   return (
@@ -34,6 +34,8 @@ export function BottomNav({ onOpenMenu }: BottomNavProps) {
             <NavLink
               key={item.path}
               to={item.path}
+              title={item.fullLabel || item.label}
+              aria-label={item.fullLabel || item.label}
               className={`relative flex flex-col items-center justify-center flex-1 py-1 px-1 transition-all duration-200 select-none ${
                 isActive ? 'text-white' : 'text-gray-400 hover:text-gray-200'
               }`}
