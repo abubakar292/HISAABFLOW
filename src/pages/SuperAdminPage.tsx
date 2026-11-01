@@ -71,18 +71,28 @@ export default function SuperAdminPage() {
   const [savingManualToken, setSavingManualToken] = useState(false);
   const [testingDrive, setTestingDrive] = useState(false);
   const [driveEmail, setDriveEmail] = useState<string | null>(null);
+  const [driveStatus, setDriveStatus] = useState<'connected' | 'expired' | 'disconnected' | 'checking'>('checking');
 
   // Supabase PostgreSQL Schema state
   const [copiedSql, setCopiedSql] = useState(false);
   const [syncingSql, setSyncingSql] = useState(false);
 
   useEffect(() => {
-    getMasterDriveToken().then(tok => {
-      setHasMasterDrive(Boolean(tok));
-      if (tok) {
-        verifyDriveToken(tok).then(res => {
-          if (res.valid && res.email) setDriveEmail(res.email);
-        });
+    setDriveStatus('checking');
+    getMasterDriveToken().then(async tok => {
+      if (!tok) {
+        setHasMasterDrive(false);
+        setDriveStatus('disconnected');
+        return;
+      }
+      const check = await verifyDriveToken(tok);
+      if (check.valid) {
+        setHasMasterDrive(true);
+        setDriveStatus('connected');
+        if (check.email) setDriveEmail(check.email);
+      } else {
+        setHasMasterDrive(false);
+        setDriveStatus('expired');
       }
     });
   }, []);
@@ -94,10 +104,17 @@ export default function SuperAdminPage() {
       const token = await getGoogleDriveAccessToken('threadsandtailsshop@gmail.com', true);
       if (token) {
         await saveMasterDriveToken(token);
-        setHasMasterDrive(true);
         const check = await verifyDriveToken(token);
-        if (check.valid && check.email) setDriveEmail(check.email);
-        success('Master Google Drive connected! All client shops can now sync backups into this central Drive.');
+        if (check.valid) {
+          setHasMasterDrive(true);
+          setDriveStatus('connected');
+          if (check.email) setDriveEmail(check.email);
+          success('Master Google Drive connected! All client shops can now sync backups into this central Drive.');
+        } else {
+          setHasMasterDrive(false);
+          setDriveStatus('expired');
+          toast('Token saved but verification returned: ' + (check.error || 'expired'), 'warning');
+        }
       }
     } catch (err: any) {
       console.warn('Drive connection error:', err);
@@ -123,6 +140,7 @@ export default function SuperAdminPage() {
       }
       await saveMasterDriveToken(token);
       setHasMasterDrive(true);
+      setDriveStatus('connected');
       setDriveEmail(check.email || 'threadsandtailsshop@gmail.com');
       setManualTokenInput('');
       success(`Google Drive connected successfully as ${check.email || 'threadsandtailsshop@gmail.com'}!`);
@@ -140,14 +158,18 @@ export default function SuperAdminPage() {
       const tok = await getMasterDriveToken();
       if (!tok) {
         setHasMasterDrive(false);
+        setDriveStatus('disconnected');
         throw new Error('No active Drive token found. Please connect your Google Drive.');
       }
       const check = await verifyDriveToken(tok);
       if (check.valid) {
         setHasMasterDrive(true);
+        setDriveStatus('connected');
         setDriveEmail(check.email || 'threadsandtailsshop@gmail.com');
         success(`Google Drive connection is ACTIVE! Verified account: ${check.email}`);
       } else {
+        setHasMasterDrive(false);
+        setDriveStatus('expired');
         throw new Error(check.error || 'Token expired. Please reconnect.');
       }
     } catch (err: any) {
@@ -160,7 +182,7 @@ export default function SuperAdminPage() {
   const handleDisconnectDrive = async () => {
     const isConfirmed = await confirm({
       title: 'Disconnect Master Google Drive',
-      message: 'Are you sure you want to disconnect Master Google Drive? Client shops will not be able to sync cloud backups until reconnected.',
+      message: 'Are you sure you want to disconnect Master Google Drive? Client shops will continue to sync to Master Cloud Storage.',
       confirmText: 'Disconnect Drive',
       cancelText: 'Cancel',
       type: 'warning',
@@ -168,6 +190,7 @@ export default function SuperAdminPage() {
     if (isConfirmed) {
       await removeMasterDriveToken();
       setHasMasterDrive(false);
+      setDriveStatus('disconnected');
       setDriveEmail(null);
       success('Master Google Drive disconnected.');
     }
@@ -609,14 +632,34 @@ export default function SuperAdminPage() {
                 </div>
               </div>
               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
-                hasMasterDrive ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-amber-100 text-amber-800 border border-amber-200'
+                driveStatus === 'connected'
+                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                  : driveStatus === 'expired'
+                  ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                  : driveStatus === 'checking'
+                  ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                  : 'bg-gray-100 text-gray-700 border border-gray-200'
               }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${hasMasterDrive ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                {hasMasterDrive ? 'Connected' : 'Not Connected'}
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  driveStatus === 'connected'
+                    ? 'bg-emerald-500'
+                    : driveStatus === 'expired'
+                    ? 'bg-amber-500 animate-pulse'
+                    : driveStatus === 'checking'
+                    ? 'bg-blue-500 animate-spin'
+                    : 'bg-gray-400'
+                }`} />
+                {driveStatus === 'connected'
+                  ? 'Connected'
+                  : driveStatus === 'expired'
+                  ? 'Token Expired (Reconnect)'
+                  : driveStatus === 'checking'
+                  ? 'Checking...'
+                  : 'Not Connected'}
               </span>
             </div>
             <p className="text-[11px] text-gray-500 leading-snug">
-              Client shops automatically upload their <span className="font-semibold text-gray-700">[ShopName] Backup.json</span> into this central Drive.
+              Client shops automatically upload their <span className="font-semibold text-gray-700">[ShopName] Backup.json</span> to Master Cloud Storage & Google Drive.
             </p>
           </div>
 
@@ -638,7 +681,7 @@ export default function SuperAdminPage() {
               className="text-xs font-bold bg-[#522D60] hover:bg-[#42244E] text-white cursor-pointer justify-center"
             >
               <Cloud className="w-3.5 h-3.5 mr-1 shrink-0" />
-              <span>{hasMasterDrive ? 'Sync' : 'Connect'}</span>
+              <span>{driveStatus === 'connected' ? 'Re-sync' : driveStatus === 'expired' ? 'Reconnect' : 'Connect'}</span>
             </Button>
           </div>
         </div>

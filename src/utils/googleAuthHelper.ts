@@ -46,6 +46,8 @@ export async function verifyDriveToken(token: string): Promise<{ valid: boolean;
   }
 }
 
+import { supabaseAdmin, SUPABASE_BUCKET } from '../lib/supabase';
+
 /**
  * Stores the master owner's Google Drive authorization token in Firestore & localStorage
  * so that all client shops can sync backups directly into the central Google Drive.
@@ -66,8 +68,26 @@ export async function saveMasterDriveToken(token: string): Promise<void> {
       updatedAt: serverTimestamp(),
       savedAtMs: Date.now(),
     }, { merge: true });
+
+    // Also persist directly into Supabase Storage _db/system.json for immediate cross-device access
+    const systemPayload = {
+      [MASTER_DRIVE_DOC]: {
+        accessToken: token,
+        ownerEmail: 'threadsandtailsshop@gmail.com',
+        scope: DRIVE_SCOPE,
+        savedAtMs: Date.now(),
+        updatedAt: new Date().toISOString(),
+      }
+    };
+    await supabaseAdmin.storage
+      .from(SUPABASE_BUCKET)
+      .upload('_db/system.json', new Blob([JSON.stringify(systemPayload, null, 2)], { type: 'application/json' }), {
+        upsert: true,
+        contentType: 'application/json',
+      })
+      .catch(() => {});
   } catch (err) {
-    console.warn('Could not save master drive token to Firestore:', err);
+    console.warn('Could not save master drive token to database:', err);
   }
 }
 
@@ -85,13 +105,30 @@ export async function removeMasterDriveToken(): Promise<void> {
       updatedAt: serverTimestamp(),
       savedAtMs: 0,
     }, { merge: true });
+
+    const emptyPayload = {
+      [MASTER_DRIVE_DOC]: {
+        accessToken: null,
+        ownerEmail: 'threadsandtailsshop@gmail.com',
+        scope: DRIVE_SCOPE,
+        savedAtMs: 0,
+        updatedAt: new Date().toISOString(),
+      }
+    };
+    await supabaseAdmin.storage
+      .from(SUPABASE_BUCKET)
+      .upload('_db/system.json', new Blob([JSON.stringify(emptyPayload, null, 2)], { type: 'application/json' }), {
+        upsert: true,
+        contentType: 'application/json',
+      })
+      .catch(() => {});
   } catch (err) {
-    console.warn('Could not clear master drive token in Firestore:', err);
+    console.warn('Could not clear master drive token in database:', err);
   }
 }
 
 /**
- * Retrieves the active master Google Drive access token.
+ * Retrieves the active master Google Drive access token across all devices.
  */
 export async function getMasterDriveToken(): Promise<string | null> {
   // 1. Check in-memory cache
@@ -109,24 +146,39 @@ export async function getMasterDriveToken(): Promise<string | null> {
     return localToken;
   }
 
-  // 3. Check Firestore
+  // 3. Check Firestore / Supabase database
   try {
     const snap = await getDoc(doc(db, 'system', MASTER_DRIVE_DOC));
     if (snap.exists()) {
       const data = snap.data();
-      if (data.accessToken) {
-        const savedAtMs = Number(data.savedAtMs) || 0;
-        if (!savedAtMs || Date.now() - savedAtMs < 55 * 60 * 1000) {
-          inMemoryAccessToken = data.accessToken;
-          inMemoryTokenExpiry = (savedAtMs || Date.now()) + 55 * 60 * 1000;
-          localStorage.setItem('master_google_drive_token', data.accessToken);
-          localStorage.setItem('master_google_drive_token_time', savedAtMs ? savedAtMs.toString() : Date.now().toString());
-          return data.accessToken;
-        }
+      if (data?.accessToken) {
+        inMemoryAccessToken = data.accessToken;
+        localStorage.setItem('master_google_drive_token', data.accessToken);
+        localStorage.setItem('master_google_drive_token_time', (data.savedAtMs || Date.now()).toString());
+        return data.accessToken;
       }
     }
   } catch (err) {
-    console.warn('Could not read master drive token from Firestore:', err);
+    console.warn('Could not read master drive token from database:', err);
+  }
+
+  // 4. Check Supabase Storage _db/system.json directly as fallback
+  try {
+    const { data: blob } = await supabaseAdmin.storage
+      .from(SUPABASE_BUCKET)
+      .download('_db/system.json');
+    if (blob) {
+      const text = await blob.text();
+      const parsed = JSON.parse(text);
+      if (parsed?.[MASTER_DRIVE_DOC]?.accessToken) {
+        const tok = parsed[MASTER_DRIVE_DOC].accessToken;
+        inMemoryAccessToken = tok;
+        localStorage.setItem('master_google_drive_token', tok);
+        return tok;
+      }
+    }
+  } catch (err) {
+    console.warn('Fallback check for drive token failed:', err);
   }
 
   return localToken || null;

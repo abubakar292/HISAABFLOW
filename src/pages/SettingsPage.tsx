@@ -10,7 +10,8 @@ import {
 import { useToast } from '../contexts/ToastContext';
 import { Modal } from '../components/ui/Modal';
 import { 
-  syncShopBackupToGoogleDrive, 
+  syncShopBackupToMasterCloud, 
+  syncShopBackupToGoogleDrive,
   downloadShopBackupLocally, 
   BackupSyncResult 
 } from '../utils/googleDriveBackup';
@@ -183,23 +184,23 @@ export default function SettingsPage() {
   const handleSyncToGoogleDrive = async () => {
     setIsSyncingDrive(true);
     try {
-      const token = await getMasterDriveToken();
-      if (!token) {
-        toast('Master Google Drive backup is currently being set up by the Administrator. You can download an offline backup below anytime.', 'info');
-        return;
-      }
-      toast('Syncing shop backup to Master Google Drive...', 'info');
+      toast('Syncing shop backup to Master Cloud...', 'info');
       
-      const res = await syncShopBackupToGoogleDrive(shopProfile, token);
+      const res = await syncShopBackupToMasterCloud(shopProfile);
       setDriveSyncResult(res);
       await updateProfileData({
         lastBackupTime: res.modifiedTime,
-        googleDriveBackupFileId: res.fileId,
+        googleDriveBackupFileId: res.fileId || shopProfile.googleDriveBackupFileId,
       });
-      success(`Synced ${res.totalRecords} records to Master Google Drive ("${shopProfile.shopName || 'Shop'} Backup.json").`);
+
+      if (res.driveSynced) {
+        success(`Synced ${res.totalRecords} records to Master Cloud & Google Drive ("${shopProfile.shopName || 'Shop'} Backup.json").`);
+      } else {
+        success(`Synced ${res.totalRecords} records to Master Cloud Backup ("${shopProfile.shopName || 'Shop'} Backup.json").`);
+      }
     } catch (err: any) {
       console.warn('Drive sync error:', err);
-      error(err.message || 'Failed to sync backup to Google Drive.');
+      error(err.message || 'Failed to sync backup to Cloud.');
     } finally {
       setIsSyncingDrive(false);
     }
