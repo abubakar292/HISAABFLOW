@@ -618,6 +618,12 @@ export default function PurchaseMobilePage() {
         isOpen={scannerOpen}
         onClose={() => setScannerOpen(false)}
         onScan={handleScan}
+        onScanBoth={(imei1, imei2) => {
+          setFormData(prev => ({ ...prev, imei1, imei2 }));
+          success(`Both IMEIs scanned: ${imei1} & ${imei2}`);
+        }}
+        targetField={activeScanField || undefined}
+        title={activeScanField === 'imei2' ? 'Scan IMEI 2' : 'Scan IMEI 1'}
       />
     </div>
   );

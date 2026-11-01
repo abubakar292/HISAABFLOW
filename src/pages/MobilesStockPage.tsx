@@ -853,7 +853,17 @@ export default function MobilesStockPage() {
         </Button>
       </Modal>
 
-      <BarcodeScanner isOpen={scannerOpen} onClose={() => setScannerOpen(false)} onScan={handleScan} />
+      <BarcodeScanner 
+        isOpen={scannerOpen} 
+        onClose={() => setScannerOpen(false)} 
+        onScan={handleScan}
+        onScanBoth={(imei1, imei2) => {
+          setSingleSellModal((prev: any) => ({ ...prev, imei1, imei2 }));
+          success(`Both IMEIs added: ${imei1} & ${imei2}`);
+        }}
+        targetField={activeScanField?.field}
+        title={activeScanField?.field === 'imei2' ? 'Scan IMEI 2' : 'Scan IMEI 1'}
+      />
       <PrintPromptModal isOpen={printPromptData.isOpen} onClose={() => setPrintPromptData({ isOpen: false, billData: null, profit: 0 })} billData={printPromptData.billData} profit={printPromptData.profit} />
     </div>
   );
