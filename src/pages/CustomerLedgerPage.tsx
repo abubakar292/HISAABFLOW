@@ -3,7 +3,7 @@ import { collection, query, getDocs, addDoc, doc, getDoc, updateDoc, deleteDoc, 
 import { db } from '../lib/firebase';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, MessageCircle, ArrowUpRight, ArrowDownLeft, BookOpen, X, Edit2, Trash2, AlertTriangle, PhoneCall, Calendar, RotateCcw } from 'lucide-react';
+import { ArrowLeft, MessageCircle, ArrowUpRight, ArrowDownLeft, BookOpen, X, Edit2, Trash2, AlertTriangle, PhoneCall, Calendar, RotateCcw, BarChart3, FileText } from 'lucide-react';
 import { format, startOfDay, endOfDay, subDays, startOfWeek, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { parseDateSafe, formatDateSafe } from '../utils/dateUtils';
 import { Input } from '../components/ui/Input';
@@ -14,8 +14,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { isDocForShop } from '../utils/multiTenantService';
 import { getWhatsAppKhataUrl, getWhatsAppTransactionUrl } from '../config/shopConfig';
 
-export type DatePreset = 'all' | 'today' | 'yesterday' | 'this_week' | 'this_month' | 'last_month' | 'custom';
-
 export default function CustomerLedgerPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -25,10 +23,12 @@ export default function CustomerLedgerPage() {
   const [loading, setLoading] = useState(true);
   const { success, error } = useToast();
 
-  // Date Filter State
-  const [datePreset, setDatePreset] = useState<DatePreset>('all');
-  const [customStartDate, setCustomStartDate] = useState<string>('');
-  const [customEndDate, setCustomEndDate] = useState<string>('');
+  // Reports Modal State (Opened via "Reports" button at top)
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportStartDate, setReportStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [reportEndDate, setReportEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [reportHasCalculated, setReportHasCalculated] = useState(false);
+  const [reportPreset, setReportPreset] = useState<'today' | 'this_week' | 'this_month' | 'last_month' | 'all' | 'custom'>('this_month');
 
   // Quick Customer Phone Edit
   const [isEditingPhone, setIsEditingPhone] = useState(false);
@@ -313,66 +313,53 @@ export default function CustomerLedgerPage() {
     }
   };
 
-  // Date Range Calculation for Period Filter using canonical YYYY-MM-DD strings
-  const now = new Date();
-  const todayStr = format(now, 'yyyy-MM-dd');
-  let startStr: string | null = null;
-  let endStr: string | null = null;
-  let periodLabel = 'All Time';
+  // Apply quick period preset inside the Report Modal
+  const applyReportPreset = (preset: 'today' | 'this_week' | 'this_month' | 'last_month' | 'all') => {
+    const n = new Date();
+    setReportPreset(preset);
+    if (preset === 'today') {
+      const d = format(n, 'yyyy-MM-dd');
+      setReportStartDate(d);
+      setReportEndDate(d);
+    } else if (preset === 'this_week') {
+      setReportStartDate(format(startOfWeek(n, { weekStartsOn: 1 }), 'yyyy-MM-dd'));
+      setReportEndDate(format(n, 'yyyy-MM-dd'));
+    } else if (preset === 'this_month') {
+      setReportStartDate(format(startOfMonth(n), 'yyyy-MM-dd'));
+      setReportEndDate(format(endOfMonth(n), 'yyyy-MM-dd'));
+    } else if (preset === 'last_month') {
+      const lm = subMonths(n, 1);
+      setReportStartDate(format(startOfMonth(lm), 'yyyy-MM-dd'));
+      setReportEndDate(format(endOfMonth(lm), 'yyyy-MM-dd'));
+    } else if (preset === 'all') {
+      setReportStartDate('');
+      setReportEndDate('');
+    }
+    setReportHasCalculated(false);
+  };
 
-  if (datePreset === 'today') {
-    startStr = todayStr;
-    endStr = todayStr;
-    periodLabel = `Today (${format(now, 'dd MMM')})`;
-  } else if (datePreset === 'yesterday') {
-    const yest = subDays(now, 1);
-    const yestStr = format(yest, 'yyyy-MM-dd');
-    startStr = yestStr;
-    endStr = yestStr;
-    periodLabel = `Yesterday (${format(yest, 'dd MMM')})`;
-  } else if (datePreset === 'this_week') {
-    const weekStart = startOfWeek(now, { weekStartsOn: 1 });
-    startStr = format(weekStart, 'yyyy-MM-dd');
-    endStr = todayStr;
-    periodLabel = `This Week (${format(weekStart, 'dd MMM')} - Today)`;
-  } else if (datePreset === 'this_month') {
-    startStr = format(startOfMonth(now), 'yyyy-MM-dd');
-    endStr = format(endOfMonth(now), 'yyyy-MM-dd');
-    periodLabel = `This Month (${format(now, 'MMM yyyy')})`;
-  } else if (datePreset === 'last_month') {
-    const lastM = subMonths(now, 1);
-    startStr = format(startOfMonth(lastM), 'yyyy-MM-dd');
-    endStr = format(endOfMonth(lastM), 'yyyy-MM-dd');
-    periodLabel = `Last Month (${format(lastM, 'MMM yyyy')})`;
-  } else if (datePreset === 'custom') {
-    if (customStartDate) startStr = customStartDate.trim();
-    if (customEndDate) endStr = customEndDate.trim();
-    periodLabel = customStartDate && customEndDate
-      ? `${formatDateSafe(customStartDate, 'dd MMM')} - ${formatDateSafe(customEndDate, 'dd MMM')}`
-      : 'Custom Date';
-  }
-
-  const filteredTransactions = transactions.filter((tx) => {
-    if (datePreset === 'all') return true;
-    if (datePreset === 'custom' && !startStr && !endStr) return true;
+  // Calculate GIVEN and GOT for the report modal
+  const reportFilteredTxs = transactions.filter((tx) => {
     const txDateStr =
       tx.dateStr ||
       tx.saleDate ||
       (tx.date instanceof Date
         ? format(tx.date, 'yyyy-MM-dd')
         : format(parseDateSafe(tx.date) || new Date(), 'yyyy-MM-dd'));
-    if (startStr && txDateStr < startStr) return false;
-    if (endStr && txDateStr > endStr) return false;
+    if (reportStartDate && txDateStr < reportStartDate) return false;
+    if (reportEndDate && txDateStr > reportEndDate) return false;
     return true;
   });
 
-  const periodGiven = filteredTransactions
+  const reportTotalGiven = reportFilteredTxs
     .filter((tx) => tx.transactionType === 'udhar')
     .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
 
-  const periodGot = filteredTransactions
+  const reportTotalGot = reportFilteredTxs
     .filter((tx) => tx.transactionType === 'wasooli')
     .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+
+  const filteredTransactions = transactions;
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading ledger...</div>;
   if (!customer) return <div className="p-8 text-center text-red-500">Customer not found</div>;
@@ -412,8 +399,21 @@ export default function CustomerLedgerPage() {
           </div>
         </div>
 
-        {/* WhatsApp Top Button */}
-        <div className="shrink-0">
+        {/* Header Action Group (Reports & WhatsApp) */}
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              setIsReportModalOpen(true);
+              setReportHasCalculated(false);
+            }}
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#522D60] hover:bg-[#432350] text-white font-bold text-xs sm:text-sm shadow-xs transition-transform active:scale-95 cursor-pointer"
+            title="Customer Ledger Report"
+          >
+            <BarChart3 className="w-4 h-4 text-purple-200" />
+            <span>Reports</span>
+          </button>
+
           {customer.phone ? (
             <a
               href={getWhatsAppKhataUrl(customer.phone, customer.name, customer.totalBalance || 0, customer.type)}
@@ -474,110 +474,22 @@ export default function CustomerLedgerPage() {
         </button>
       </div>
 
-      {/* COMPACT DATE FILTER + NON-SQUEEZING GIVEN & GOT BOXES */}
-      <div className="bg-white rounded-2xl p-3 sm:p-3.5 mb-4 border border-gray-100 shadow-xs space-y-2.5">
-        {/* Row 1: Date Filter Pills with horizontal scroll on mobile */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:flex-wrap">
-          {[
-            { id: 'all', label: 'All Time' },
-            { id: 'today', label: 'Today' },
-            { id: 'yesterday', label: 'Yesterday' },
-            { id: 'this_week', label: 'This Week' },
-            { id: 'this_month', label: 'This Month' },
-            { id: 'last_month', label: 'Last Month' },
-            { id: 'custom', label: 'Custom' },
-          ].map((p) => {
-            const active = datePreset === p.id;
-            return (
-              <button
-                key={p.id}
-                onClick={() => setDatePreset(p.id as DatePreset)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer shrink-0 ${
-                  active
-                    ? 'bg-[#522D60] text-white shadow-2xs'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                {p.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Custom Date Range Inputs (when Custom is active) */}
-        {datePreset === 'custom' && (
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <div>
-              <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">From Date</label>
-              <input
-                type="date"
-                value={customStartDate}
-                onChange={(e) => setCustomStartDate(e.target.value)}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:border-[#522D60]"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">To Date</label>
-              <input
-                type="date"
-                value={customEndDate}
-                onChange={(e) => setCustomEndDate(e.target.value)}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:border-[#522D60]"
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Row 2: Two Small Compact Non-Squeezing Boxes for Given & Got */}
-        <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-gray-100">
-          <div className="p-2.5 sm:p-3 rounded-xl bg-rose-50/80 border border-rose-200 flex flex-col justify-center">
-            <span className="text-[10px] sm:text-xs font-extrabold text-rose-600 uppercase tracking-wider truncate">
-              Given ({datePreset === 'all' ? 'All Time' : periodLabel})
-            </span>
-            <span className="text-sm sm:text-base font-black text-rose-700 mt-0.5 truncate">
-              Rs. {periodGiven.toLocaleString()}
-            </span>
-          </div>
-          <div className="p-2.5 sm:p-3 rounded-xl bg-emerald-50/80 border border-emerald-200 flex flex-col justify-center">
-            <span className="text-[10px] sm:text-xs font-extrabold text-emerald-600 uppercase tracking-wider truncate">
-              Got ({datePreset === 'all' ? 'All Time' : periodLabel})
-            </span>
-            <span className="text-sm sm:text-base font-black text-emerald-700 mt-0.5 truncate">
-              Rs. {periodGot.toLocaleString()}
-            </span>
-          </div>
-        </div>
-      </div>
-
       {/* TRANSACTION HISTORY */}
       <div className="bg-white rounded-2xl shadow-card overflow-hidden border border-gray-100">
         <div className="p-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="font-extrabold text-sm sm:text-base text-gray-900">
             Transaction History
           </h3>
-          <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-            {filteredTransactions.length} Records
+          <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">
+            {filteredTransactions.length} Total Records
           </span>
         </div>
         
         {filteredTransactions.length === 0 ? (
           <div className="p-10 text-center text-gray-400">
             <BookOpen className="w-10 h-10 mx-auto mb-2 opacity-30" />
-            <p className="text-sm font-medium">No transactions found for {periodLabel}</p>
-            {datePreset !== 'all' ? (
-              <button
-                onClick={() => {
-                  setDatePreset('all');
-                  setCustomStartDate('');
-                  setCustomEndDate('');
-                }}
-                className="mt-2 text-xs font-bold text-[#522D60] underline cursor-pointer"
-              >
-                Clear date filter to see all records
-              </button>
-            ) : (
-              <p className="text-xs text-gray-400 mt-1">Record Udhar or Wasooli using buttons above</p>
-            )}
+            <p className="text-sm font-medium">No transactions recorded yet</p>
+            <p className="text-xs text-gray-400 mt-1">Record Udhar or Wasooli using the buttons above</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
@@ -844,6 +756,191 @@ export default function CustomerLedgerPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* ── CUSTOMER LEDGER DATE RANGE REPORT MODAL ── */}
+      <Modal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        title="Customer Ledger Report"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 p-3 bg-purple-50/80 border border-purple-100 rounded-xl">
+            <div className="w-10 h-10 rounded-xl bg-[#522D60] text-white flex items-center justify-center font-bold text-base shrink-0 shadow-xs">
+              {customer?.name?.slice(0, 1)?.toUpperCase() || 'C'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h4 className="font-extrabold text-sm text-gray-900 truncate">{customer?.name}</h4>
+              <p className="text-xs text-purple-900/80 font-medium truncate">
+                Current Total Balance: <span className="font-bold">Rs. {(customer?.totalBalance || 0).toLocaleString()}</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Quick Preset Buttons */}
+          <div>
+            <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+              Select Quick Period
+            </label>
+            <div className="grid grid-cols-5 gap-1">
+              {[
+                { id: 'today', label: 'Today' },
+                { id: 'this_week', label: 'Week' },
+                { id: 'this_month', label: 'Month' },
+                { id: 'last_month', label: 'Last M' },
+                { id: 'all', label: 'All' },
+              ].map(p => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => applyReportPreset(p.id as any)}
+                  className={`py-1.5 px-1.5 rounded-lg text-xs font-bold transition-all border text-center ${
+                    reportPreset === p.id 
+                      ? 'bg-[#522D60] text-white border-[#522D60] shadow-xs' 
+                      : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Date Range Inputs */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Starting Date *
+              </label>
+              <input
+                type="date"
+                value={reportStartDate}
+                onChange={e => {
+                  setReportStartDate(e.target.value);
+                  setReportPreset('custom');
+                  setReportHasCalculated(false);
+                }}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 bg-white text-xs font-medium text-gray-900 focus:outline-none focus:border-[#522D60] focus:ring-2 focus:ring-[#522D60]/20"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Ending Date *
+              </label>
+              <input
+                type="date"
+                value={reportEndDate}
+                onChange={e => {
+                  setReportEndDate(e.target.value);
+                  setReportPreset('custom');
+                  setReportHasCalculated(false);
+                }}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 bg-white text-xs font-medium text-gray-900 focus:outline-none focus:border-[#522D60] focus:ring-2 focus:ring-[#522D60]/20"
+              />
+            </div>
+          </div>
+
+          {/* "Show" Button */}
+          <button
+            type="button"
+            onClick={() => setReportHasCalculated(true)}
+            className="w-full py-2.5 px-4 bg-[#522D60] hover:bg-[#432350] text-white font-bold text-xs sm:text-sm rounded-xl transition-all shadow-md active:scale-98 flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <BarChart3 className="w-4 h-4 text-purple-200" />
+            <span>Show Report</span>
+          </button>
+
+          {/* ── THE 2 BOXES: GIVEN AND GOT (Appears on clicking Show) ── */}
+          {reportHasCalculated && (
+            <div className="space-y-3 pt-2 border-t border-gray-100 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between text-xs text-gray-500 font-medium">
+                <span>
+                  Period: <strong>{reportStartDate ? formatDateSafe(reportStartDate, 'dd MMM yyyy') : 'Start'}</strong> to <strong>{reportEndDate ? formatDateSafe(reportEndDate, 'dd MMM yyyy') : 'Today'}</strong>
+                </span>
+                <span className="text-[11px] bg-purple-50 text-[#522D60] font-bold px-2 py-0.5 rounded-full border border-purple-100">
+                  {reportFilteredTxs.length} Transactions
+                </span>
+              </div>
+
+              {/* The 2 boxes */}
+              <div className="grid grid-cols-2 gap-3">
+                {/* GIVEN BOX */}
+                <div className="p-3.5 rounded-2xl bg-rose-50/90 border-2 border-rose-300 text-rose-800 flex flex-col justify-between shadow-xs">
+                  <div>
+                    <span className="text-[11px] font-black tracking-wider uppercase text-rose-600 block">
+                      GIVEN (Udhar)
+                    </span>
+                    <p className="text-lg sm:text-2xl font-black text-rose-700 mt-1 tracking-tight truncate">
+                      Rs. {reportTotalGiven.toLocaleString()}
+                    </p>
+                  </div>
+                  <span className="text-[10px] text-rose-500 font-semibold mt-1">
+                    {reportFilteredTxs.filter(t => t.transactionType === 'udhar').length} entries
+                  </span>
+                </div>
+
+                {/* GOT BOX */}
+                <div className="p-3.5 rounded-2xl bg-emerald-50/90 border-2 border-emerald-300 text-emerald-800 flex flex-col justify-between shadow-xs">
+                  <div>
+                    <span className="text-[11px] font-black tracking-wider uppercase text-emerald-600 block">
+                      GOT (Wasooli)
+                    </span>
+                    <p className="text-lg sm:text-2xl font-black text-emerald-700 mt-1 tracking-tight truncate">
+                      Rs. {reportTotalGot.toLocaleString()}
+                    </p>
+                  </div>
+                  <span className="text-[10px] text-emerald-600 font-semibold mt-1">
+                    {reportFilteredTxs.filter(t => t.transactionType === 'wasooli').length} entries
+                  </span>
+                </div>
+              </div>
+
+              {/* Net Period Difference Summary */}
+              <div className="p-3 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-between text-xs">
+                <span className="text-gray-600 font-semibold">Net Period Change:</span>
+                <span className="font-extrabold text-gray-900">
+                  Rs. {Math.abs(reportTotalGiven - reportTotalGot).toLocaleString()}{' '}
+                  <span className={reportTotalGiven >= reportTotalGot ? 'text-rose-600 font-bold' : 'text-emerald-600 font-bold'}>
+                    ({reportTotalGiven >= reportTotalGot ? '+ More Given' : '- More Received'})
+                  </span>
+                </span>
+              </div>
+
+              {/* WhatsApp Share Button if customer has phone */}
+              {customer?.phone && (
+                <a
+                  href={`https://wa.me/${customer.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                    `*${shopProfile?.shopName || 'HISAABFLOW'} - Account Statement*\n` +
+                    `Customer: ${customer.name}\n` +
+                    `Period: ${reportStartDate || 'Start'} to ${reportEndDate || 'Today'}\n\n` +
+                    `🔴 *Total Given (Udhar):* Rs. ${reportTotalGiven.toLocaleString()}\n` +
+                    `🟢 *Total Got (Received):* Rs. ${reportTotalGot.toLocaleString()}\n` +
+                    `📌 *Current Balance:* Rs. ${(customer.totalBalance || 0).toLocaleString()}\n\n` +
+                    `Thank you for your business!`
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-xs"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>Send Report on WhatsApp</span>
+                </a>
+              )}
+            </div>
+          )}
+
+          <div className="pt-1 flex justify-end">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsReportModalOpen(false)}
+            >
+              Close
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );
