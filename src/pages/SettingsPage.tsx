@@ -5,10 +5,12 @@ import {
   Store, User, LogOut, Download, 
   RefreshCw, HardDrive, Cloud, AlertTriangle,
   Upload, Trash2, Image as ImageIcon, Camera, CheckCircle2, Eye, Receipt,
-  Volume2, VolumeX, Bell
+  Volume2, VolumeX, Bell, Lock, KeyRound
 } from 'lucide-react';
 import { useToast } from '../contexts/ToastContext';
 import { Modal } from '../components/ui/Modal';
+import { pinLockService } from '../utils/pinLockService';
+import { PinLockModal } from '../components/PinLockModal';
 import { 
   syncShopBackupToMasterCloud, 
   syncShopBackupToGoogleDrive,
@@ -83,6 +85,23 @@ export default function SettingsPage() {
   const [restoreCandidate, setRestoreCandidate] = useState<ShopBackupData | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 5-Digit PIN Lock State
+  const [pinLockEnabled, setPinLockEnabled] = useState(() => pinLockService.isEnabled());
+  const [pinModalMode, setPinModalMode] = useState<'set' | 'change' | 'disable' | null>(null);
+
+  const handleTogglePinLock = () => {
+    if (pinLockEnabled) {
+      setPinModalMode('disable');
+    } else {
+      setPinModalMode('set');
+    }
+  };
+
+  const handleLockNow = () => {
+    toast('Locking session...', 'info');
+    pinLockService.lockSession();
+  };
 
   useEffect(() => {
     if (shopProfile) {
@@ -694,7 +713,80 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* ── 3. BACKUP & CLOUD STORAGE ── */}
+      {/* ── 3. APP PIN LOCK PASSWORD ── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-purple-50 text-[#522D60] flex items-center justify-center font-bold">
+              <Lock className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="font-bold text-gray-900 text-sm">Set your PIN Password</h2>
+              <p className="text-[11px] text-gray-400">Lock your app with a 5-digit PIN password when closed or reopened</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleTogglePinLock}
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+              pinLockEnabled ? 'bg-[#522D60]' : 'bg-gray-200'
+            }`}
+            role="switch"
+            aria-checked={pinLockEnabled}
+            title={pinLockEnabled ? 'Disable PIN Password' : 'Set 5-digit PIN Password'}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                pinLockEnabled ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-gray-600">
+            <div>
+              <p className="font-semibold text-gray-800">
+                Status:{' '}
+                <span className={pinLockEnabled ? 'text-emerald-600 font-bold' : 'text-gray-400 font-bold'}>
+                  {pinLockEnabled ? '● Active (5-Digit Security PIN Enabled)' : '○ Inactive (PIN Lock is turned off)'}
+                </span>
+              </p>
+              <p className="text-[11px] text-gray-400 mt-0.5">
+                {pinLockEnabled
+                  ? 'Whenever you close and reopen HisaabFlow, your animated waving mascot and 5-digit PIN prompt will protect your store data.'
+                  : 'Turn on the switch to set a 5-digit PIN password. Only authorized users with your PIN can unlock the app.'}
+              </p>
+            </div>
+
+            {pinLockEnabled && (
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setPinModalMode('change')}
+                  className="text-xs font-semibold"
+                >
+                  <KeyRound className="w-3.5 h-3.5 mr-1 text-[#522D60]" />
+                  Change PIN
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleLockNow}
+                  className="bg-[#522D60] hover:bg-[#42244E] text-white text-xs font-semibold cursor-pointer"
+                >
+                  <Lock className="w-3.5 h-3.5 mr-1" />
+                  Lock App Now (Test)
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── 4. BACKUP & CLOUD STORAGE ── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
         <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -820,6 +912,16 @@ export default function SettingsPage() {
           </div>
         )}
       </Modal>
+
+      {/* ── 5-DIGIT PIN MODAL ── */}
+      {pinModalMode && (
+        <PinLockModal
+          isOpen={Boolean(pinModalMode)}
+          onClose={() => setPinModalMode(null)}
+          mode={pinModalMode}
+          onSuccess={() => setPinLockEnabled(pinLockService.isEnabled())}
+        />
+      )}
     </div>
   );
 }

@@ -18,6 +18,31 @@ import InventoryValuationPage from './pages/InventoryValuationPage';
 import SettingsPage from './pages/SettingsPage';
 import SuperAdminPage from './pages/SuperAdminPage';
 import Layout from './components/layout/Layout';
+import { pinLockService } from './utils/pinLockService';
+import { PinLockOverlay } from './components/PinLockOverlay';
+
+function PinLockGate({ children }: { children: React.ReactNode }) {
+  const [isLocked, setIsLocked] = useState(() => {
+    return pinLockService.isEnabled() && !pinLockService.isSessionUnlocked();
+  });
+
+  useEffect(() => {
+    const handleLockStateChange = () => {
+      setIsLocked(pinLockService.isEnabled() && !pinLockService.isSessionUnlocked());
+    };
+    window.addEventListener('hisaabflow_lock_state_changed', handleLockStateChange);
+    return () => window.removeEventListener('hisaabflow_lock_state_changed', handleLockStateChange);
+  }, []);
+
+  return (
+    <>
+      {isLocked && (
+        <PinLockOverlay onUnlock={() => setIsLocked(false)} />
+      )}
+      {children}
+    </>
+  );
+}
 
 function AppBootstrap({ children }: { children: React.ReactNode }) {
   // Allow loader to spin 3-4 cycles (~2.8 seconds) on initial launch
@@ -49,7 +74,12 @@ function AppBootstrap({ children }: { children: React.ReactNode }) {
   return (
     <>
       <AppLoader isLoading={shouldShowLoader} />
-      {children}
+      {!shouldShowLoader && (
+        <PinLockGate>
+          {children}
+        </PinLockGate>
+      )}
+      {shouldShowLoader && children}
     </>
   );
 }

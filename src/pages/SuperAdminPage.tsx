@@ -981,17 +981,33 @@ export default function SuperAdminPage() {
         <div className="space-y-4 text-xs">
           {/* Connection Status Box */}
           <div className={`p-4 rounded-2xl border flex items-center justify-between gap-3 ${
-            hasMasterDrive 
+            driveStatus === 'connected' 
               ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900' 
-              : 'bg-amber-50/80 border-amber-200 text-amber-900'
+              : driveStatus === 'expired'
+              ? 'bg-amber-50/80 border-amber-200 text-amber-900'
+              : 'bg-slate-50 border-slate-200 text-slate-800'
           }`}>
             <div className="flex items-center gap-3 min-w-0">
-              <div className={`p-2.5 rounded-xl ${hasMasterDrive ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                {hasMasterDrive ? <CheckCircle2 className="w-5 h-5 stroke-[2.5]" /> : <Cloud className="w-5 h-5" />}
+              <div className={`p-2.5 rounded-xl ${
+                driveStatus === 'connected' 
+                  ? 'bg-emerald-100 text-emerald-700' 
+                  : driveStatus === 'expired'
+                  ? 'bg-amber-100 text-amber-700'
+                  : 'bg-slate-200 text-slate-600'
+              }`}>
+                {driveStatus === 'connected' ? (
+                  <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
+                ) : (
+                  <Cloud className="w-5 h-5" />
+                )}
               </div>
               <div className="min-w-0">
                 <p className="font-bold text-sm">
-                  {hasMasterDrive ? 'Master Google Drive is CONNECTED' : 'Master Google Drive is NOT Connected'}
+                  {driveStatus === 'connected'
+                    ? 'Master Google Drive is Active'
+                    : driveStatus === 'expired'
+                    ? 'Token Expired — Reconnect Below'
+                    : 'Master Google Drive is Not Connected'}
                 </p>
                 <p className="text-[11px] opacity-80 truncate">
                   Account: <strong>{driveEmail || 'threadsandtailsshop@gmail.com'}</strong>
@@ -999,7 +1015,7 @@ export default function SuperAdminPage() {
               </div>
             </div>
 
-            {hasMasterDrive && (
+            {driveStatus === 'connected' && (
               <Button
                 size="sm"
                 variant="secondary"
@@ -1014,10 +1030,9 @@ export default function SuperAdminPage() {
             )}
           </div>
 
-          <p className="text-gray-600 leading-relaxed">
-            Connecting this master drive allows all shop clients to automatically sync and store encrypted database backups 
-            into your central Google Drive folder.
-          </p>
+          <div className="p-3 bg-blue-50/80 border border-blue-200/80 rounded-xl text-[11px] text-blue-900 leading-snug">
+            <strong>Security & Expiry Note:</strong> Google OAuth access tokens expire every 60 minutes worldwide by Google security policy. However, <strong>your client shops are 100% protected</strong>—their backups are automatically uploaded to Master Cloud Storage 24/7 without requiring Google Drive to be connected. Reconnecting Google Drive mirrors those files into your personal Drive folder as well.
+          </div>
 
           {/* Option 1: One-Click Google Sign-In */}
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
