@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { isDocForShop } from '../utils/multiTenantService';
@@ -61,9 +61,58 @@ export default function ExpensesPage() {
   const deleteLoadingRef = useRef(false);
 
   useEffect(() => {
-    if (user) {
-      fetchData();
+    if (!user || !currentShopId) {
+      setExpenses([]);
+      setSalesProfit(0);
+      setLoading(false);
+      return;
     }
+
+    setLoading(true);
+    const unsubExp = onSnapshot(
+      collection(db, 'expenses'),
+      (expSnap) => {
+        const list: Expense[] = [];
+        expSnap.forEach((d) => {
+          const data = d.data();
+          if (isDocForShop(data, currentShopId)) {
+            list.push({
+              id: d.id,
+              title: data.title || '',
+              amount: Number(data.amount) || 0,
+              category: data.category || 'Other Expense',
+              date: parseDateSafe(data.date) || new Date(),
+              notes: data.notes || '',
+              createdAt: parseDateSafe(data.createdAt) || new Date(),
+            });
+          }
+        });
+        list.sort((a, b) => b.date.getTime() - a.date.getTime());
+        setExpenses(list);
+        setLoading(false);
+      },
+      () => setLoading(false)
+    );
+
+    const unsubSales = onSnapshot(
+      collection(db, 'sales'),
+      (salesSnap) => {
+        let profitSum = 0;
+        salesSnap.forEach((d) => {
+          const s = d.data();
+          if (isDocForShop(s, currentShopId) && s.status !== 'returned') {
+            profitSum += (Number(s.profit) || 0);
+          }
+        });
+        setSalesProfit(profitSum);
+      },
+      () => {}
+    );
+
+    return () => {
+      unsubExp();
+      unsubSales();
+    };
   }, [user, currentShopId]);
 
   const fetchData = async () => {

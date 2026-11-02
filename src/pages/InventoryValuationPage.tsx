@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { isDocForShop } from '../utils/multiTenantService';
@@ -38,9 +38,49 @@ export default function InventoryValuationPage() {
   const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   useEffect(() => {
-    if (user) {
-      fetchStock();
+    if (!user || !currentShopId) {
+      setStock([]);
+      setLoading(false);
+      return;
     }
+
+    setLoading(true);
+    const unsub = onSnapshot(
+      collection(db, 'mobiles'),
+      (snap) => {
+        const items: MobileStockItem[] = [];
+        snap.forEach(docSnap => {
+          const data = docSnap.data();
+          const qty = Number(data.quantity) || 0;
+          if (isDocForShop(data, currentShopId) && qty > 0) {
+            const basePrice = Number(data.basePrice ?? data.purchasePrice ?? data.costPrice ?? 0);
+            const modelName = data.modelName || data.model || data.itemName || 'Unnamed Mobile';
+            const company = data.company || data.companyName || data.brand || 'Other';
+            const ramRom = data.ramRom || data.storage || '';
+            const condition = data.condition || 'New';
+
+            items.push({
+              id: docSnap.id,
+              modelName,
+              company,
+              ramRom,
+              condition,
+              quantity: qty,
+              basePrice,
+              totalValue: qty * basePrice,
+              color: data.color || '',
+              storage: data.storage || ''
+            });
+          }
+        });
+        items.sort((a, b) => b.totalValue - a.totalValue);
+        setStock(items);
+        setLoading(false);
+      },
+      () => setLoading(false)
+    );
+
+    return unsub;
   }, [user, currentShopId]);
 
   const fetchStock = async () => {

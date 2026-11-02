@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, getDocs, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, orderBy, where, writeBatch } from 'firebase/firestore';
+import { collection, query, getDocs, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, orderBy, where, writeBatch, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -45,12 +45,38 @@ export default function KhataPage() {
   const isDeletingRef = useRef(false);
 
   useEffect(() => {
-    if (user && currentShopId) {
-      fetchCustomers();
-    } else {
+    if (!user || !currentShopId) {
       setCustomers([]);
       setLoading(false);
+      return;
     }
+
+    setLoading(true);
+    const unsub = onSnapshot(
+      collection(db, 'khata'),
+      (custSnap) => {
+        const cust: any[] = [];
+        custSnap.forEach(docSnap => {
+          const data = docSnap.data();
+          if (isDocForShop(data, currentShopId)) {
+            cust.push({ id: docSnap.id, ...data });
+          }
+        });
+        cust.sort((a, b) => {
+          const da = a.createdAt?.toMillis ? a.createdAt.toMillis() : (new Date(a.createdAt || 0).getTime());
+          const db = b.createdAt?.toMillis ? b.createdAt.toMillis() : (new Date(b.createdAt || 0).getTime());
+          return db - da;
+        });
+        setCustomers(cust);
+        setLoading(false);
+      },
+      (err) => {
+        console.warn('Khata listener error:', err);
+        setLoading(false);
+      }
+    );
+
+    return unsub;
   }, [user, currentShopId]);
 
   const fetchCustomers = async () => {

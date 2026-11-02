@@ -10,8 +10,10 @@ import {
   signInWithPopup,
   updateProfile,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, deleteDoc, collection, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, deleteDoc, collection, getDocs, query, where, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
+import { supabaseAdmin } from '../lib/supabase';
+import { onAccountTerminated, clearAllLocalDbCaches } from '../lib/supabaseDb';
 import {
   ShopProfile,
   getShopProfile,
@@ -133,8 +135,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (firebaseUser.isAnonymous || !firebaseUser.email) return false;
 
       const email = firebaseUser.email.toLowerCase().trim();
+
+      // Verify with Supabase Auth that this user has not been deleted by the Super Admin
+      if (firebaseUser.uid && firebaseUser.uid !== 'master_admin' && !firebaseUser.uid.startsWith('anon_')) {
+        try {
+          const { data: authCheck, error: authErr } = await supabaseAdmin.auth.admin.getUserById(firebaseUser.uid);
+          const isDeletedInAuth =
+            (authErr && (authErr.status === 404 || authErr.message?.toLowerCase().includes('not found'))) ||
+            (!authErr && !authCheck?.user);
+          if (isDeletedInAuth) {
+            await deleteDoc(doc(db, 'users', firebaseUser.uid)).catch(() => {});
+            await deleteDoc(doc(db, 'shops', firebaseUser.uid)).catch(() => {});
+            await logout();
+            return false;
+          }
+        } catch {
+          // ignore network hiccup
+        }
+      }
+
       const userRef = doc(db, 'users', firebaseUser.uid);
       const snap = await getDoc(userRef);
+
+      if (snap.exists() && snap.data()?.status === 'suspended' && !MASTER_ADMIN_EMAILS.includes(email)) {
+        await logout();
+        return false;
+      }
 
       // Clean up any older duplicate UIDs for this same email
       await purgeStaleEmailDocs(email, firebaseUser.uid);
@@ -305,6 +331,121 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     return unsub;
   }, []);
+
+  // Real-time Cross-Device Shop Profile Sync + Instant Account Deletion/Suspension Enforcement
+  useEffect(() => {
+    if (!user || user.isAnonymous || user.uid === 'master_admin') return;
+
+    const activeUid = user.uid;
+    const activeEmail = (user.email || '').toLowerCase().trim();
+    const isMaster = MASTER_ADMIN_EMAILS.includes(activeEmail);
+    let isCancelled = false;
+    let hasSeenUserDoc = false;
+
+    const verifyAccountStillExistsInAuth = async () => {
+      if (isCancelled || isMaster) return;
+      try {
+        const { data, error } = await supabaseAdmin.auth.admin.getUserById(activeUid);
+        const isDeleted =
+          (error && (error.status === 404 || error.message?.toLowerCase().includes('not found'))) ||
+          (!error && !data?.user);
+        if (isDeleted && !isCancelled) {
+          await logout();
+        }
+      } catch {
+        // ignore transient network error
+      }
+    };
+
+    // 1. Listen for immediate Realtime broadcast when Super Admin deletes or suspends this account
+    const unsubTerminated = onAccountTerminated((payload) => {
+      if (isCancelled || isMaster) return;
+      const matchEmail = payload.email && activeEmail && payload.email.toLowerCase().trim() === activeEmail;
+      const matchUid = payload.uid && payload.uid === activeUid;
+      if (matchEmail || matchUid) {
+        logout();
+      }
+    });
+
+    // 2. Real-time listener on `shops/{uid}` so any profile/logo/name changes on Laptop sync to Mobile immediately
+    const unsubShop = onSnapshot(
+      doc(db, 'shops', activeUid),
+      (snap) => {
+        if (isCancelled) return;
+        if (snap.exists()) {
+          const data = snap.data() as ShopProfile & { status?: string };
+          if (data.status === 'suspended' && !isMaster) {
+            logout();
+            return;
+          }
+          setShopProfile((prev) => {
+            const resolvedName = data.shopName || prev.shopName || 'Mobile Center';
+            const resolvedShort = data.shortName || getInitials(resolvedName);
+            const next: ShopProfile = {
+              ...EMPTY_SHOP_PROFILE,
+              ...prev,
+              ...data,
+              shopId: data.shopId || prev.shopId || `shop_${activeUid.slice(0, 8)}`,
+              shopName: resolvedName,
+              shortName: resolvedShort,
+              ownerUid: activeUid,
+              ownerEmail: activeEmail || data.ownerEmail || prev.ownerEmail,
+            };
+            try {
+              localStorage.setItem('cached_shop_id', next.shopId);
+              localStorage.setItem('cached_shop_name', next.shopName);
+              localStorage.setItem('cached_shop_short_name', next.shortName);
+              if (next.subTitle) localStorage.setItem('cached_shop_subtitle', next.subTitle);
+            } catch {}
+            updateAppBranding(next.shopName, next.shortName);
+            return next;
+          });
+        }
+      },
+      () => {}
+    );
+
+    // 3. Real-time listener on `users/{uid}` to detect suspension or deletion immediately
+    const unsubUser = onSnapshot(
+      doc(db, 'users', activeUid),
+      (snap) => {
+        if (isCancelled || isMaster) return;
+        if (snap.exists()) {
+          hasSeenUserDoc = true;
+          const uData = snap.data();
+          if (uData?.status === 'suspended') {
+            logout();
+          }
+        } else if (hasSeenUserDoc) {
+          // Document was deleted while user was online -> verify & kick out immediately
+          logout();
+        } else {
+          verifyAccountStillExistsInAuth();
+        }
+      },
+      () => {}
+    );
+
+    // 4. Periodic 3.5-second heartbeat + focus/visibility check against Supabase Auth
+    verifyAccountStillExistsInAuth();
+    const intervalId = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        verifyAccountStillExistsInAuth();
+      }
+    }, 3500);
+
+    const handleFocus = () => verifyAccountStillExistsInAuth();
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      isCancelled = true;
+      unsubTerminated();
+      unsubShop();
+      unsubUser();
+      clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [user?.uid, user?.email]);
 
   const signIn = async (email: string, password: string) => {
     const cleanEmail = email.trim().toLowerCase();
@@ -498,6 +639,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('cached_shop_name');
       localStorage.removeItem('cached_shop_short_name');
       localStorage.removeItem('cached_shop_subtitle');
+      clearAllLocalDbCaches();
     } catch (e) {
       // ignore
     }

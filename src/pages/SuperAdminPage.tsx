@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, setDoc, deleteDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { supabaseAdmin } from '../lib/supabase';
-import { purgeAllShopDataForAccount } from '../lib/supabaseDb';
+import { purgeAllShopDataForAccount, broadcastAccountTermination } from '../lib/supabaseDb';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
@@ -450,6 +450,13 @@ export default function SuperAdminPage() {
     try {
       await setDoc(doc(db, 'shops', tenant.id), { status: newStatus }, { merge: true });
       await setDoc(doc(db, 'users', tenant.id), { status: newStatus }, { merge: true });
+      if (newStatus === 'suspended') {
+        broadcastAccountTermination({
+          email: tenant.ownerEmail,
+          uid: tenant.ownerUid,
+          reason: 'suspended',
+        });
+      }
       setTenants((prev) =>
         prev.map((t) => (t.id === tenant.id ? { ...t, status: newStatus } : t))
       );

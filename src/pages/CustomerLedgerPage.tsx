@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, getDocs, addDoc, doc, getDoc, updateDoc, deleteDoc, serverTimestamp, where, writeBatch } from 'firebase/firestore';
+import { collection, query, getDocs, addDoc, doc, getDoc, updateDoc, deleteDoc, serverTimestamp, where, writeBatch, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -59,8 +59,74 @@ export default function CustomerLedgerPage() {
   const isDeletingTxRef = useRef(false);
 
   useEffect(() => {
-    if (id && user) fetchLedgerData();
-  }, [id, user]);
+    if (!id || !user || !currentShopId) return;
+
+    const unsubCustomer = onSnapshot(
+      doc(db, 'khata', id),
+      (snap) => {
+        if (snap.exists()) {
+          const custData = snap.data();
+          if (isDocForShop(custData, currentShopId)) {
+            setCustomer({ id: snap.id, ...custData });
+          }
+        }
+        setLoading(false);
+      },
+      () => setLoading(false)
+    );
+
+    const txQuery = query(collection(db, 'khataTransactions'), where('khataId', '==', id));
+    const unsubTxs = onSnapshot(
+      txQuery,
+      (txSnap) => {
+        const txs: any[] = [];
+        txSnap.forEach(d => {
+          const data = d.data();
+          const rawDate = data.dateStr || data.saleDate;
+          let parsedDate = rawDate ? parseDateSafe(rawDate) : parseDateSafe(data.date);
+          if (
+            !rawDate &&
+            parsedDate &&
+            parsedDate.getUTCHours() === 0 &&
+            parsedDate.getUTCMinutes() === 0 &&
+            parsedDate.getUTCSeconds() === 0 &&
+            parsedDate.getUTCMilliseconds() === 0
+          ) {
+            parsedDate = new Date(
+              parsedDate.getUTCFullYear(),
+              parsedDate.getUTCMonth(),
+              parsedDate.getUTCDate(),
+              12,
+              0,
+              0
+            );
+          }
+          const finalDate = parsedDate || parseDateSafe(data.createdAt) || new Date();
+          const canonicalDateStr = rawDate && typeof rawDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rawDate.trim())
+            ? rawDate.trim()
+            : format(finalDate, 'yyyy-MM-dd');
+
+          txs.push({
+            id: d.id,
+            ...data,
+            date: finalDate,
+            dateStr: canonicalDateStr,
+            saleDate: canonicalDateStr,
+            createdAt: parseDateSafe(data.createdAt) || new Date(),
+          });
+        });
+        txs.sort((a, b) => b.date.getTime() - a.date.getTime());
+        setTransactions(txs);
+        setLoading(false);
+      },
+      () => setLoading(false)
+    );
+
+    return () => {
+      unsubCustomer();
+      unsubTxs();
+    };
+  }, [id, user, currentShopId]);
 
   const fetchLedgerData = async () => {
     if (!id || !user) return;

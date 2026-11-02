@@ -52,19 +52,17 @@ export default function MobilesStockPage() {
   useEffect(() => {
     if (!user) return;
 
-    const fetchKhata = async () => {
-      try {
-        const snap = await getDocs(collection(db, 'khata'));
+    const unsubKhata = onSnapshot(
+      collection(db, 'khata'),
+      (snap) => {
         const list = snap.docs
           .map(d => ({ id: d.id, ...d.data() }))
           .filter(c => isDocForShop(c, currentShopId));
         list.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
         setKhataCustomers(list);
-      } catch (err) {
-        console.error(err);
-      }
-    };
-    fetchKhata();
+      },
+      () => {}
+    );
 
     const q = collection(db, 'mobiles');
     const unsub = onSnapshot(
@@ -86,7 +84,10 @@ export default function MobilesStockPage() {
         setLoading(false);
       }
     );
-    return unsub;
+    return () => {
+      unsubKhata();
+      unsub();
+    };
   }, [user, currentShopId]);
 
   const filteredMobiles = mobiles.filter(m => {

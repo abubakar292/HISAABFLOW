@@ -1,4 +1,10 @@
-import { supabaseAdmin, SUPABASE_BUCKET } from './supabase';
+import {
+  supabase,
+  supabaseAdmin,
+  SUPABASE_BUCKET,
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY,
+} from './supabase';
 
 // ---------------------------------------------------------------------------
 // Types & Sentinels
@@ -43,17 +49,88 @@ export function getFirestore(_app?: any) {
 }
 
 // ---------------------------------------------------------------------------
-// In-Memory + Supabase Cloud Storage & PostgreSQL Sync Engine
+// Real-Time Cross-Device Sync + In-Memory + Supabase Storage Engine
 // ---------------------------------------------------------------------------
+
+const CLIENT_INSTANCE_ID = `inst_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
 const memoryStore = new Map<string, Map<string, Record<string, any>>>();
 const loadedCollections = new Set<string>();
 const loadingPromises = new Map<string, Promise<Map<string, Record<string, any>>>>();
 const listeners = new Map<string, Set<() => void>>();
-const pgTableStatus = new Map<string, boolean>(); // true if SQL table exists, false if not yet created
+const pgTableStatus = new Map<string, boolean>();
+
+// Track local unsaved mutations per collection so remote merges never overwrite in-flight local edits
+const dirtyDocs = new Map<string, Map<string, Record<string, any>>>();
+const deletedDocIds = new Map<string, Set<string>>();
+const lastRemoteJsonHash = new Map<string, string>();
+
+// Account termination callbacks (for instant real-time kick-out on delete/suspend)
+type AccountTerminationPayload = {
+  email?: string;
+  uid?: string;
+  shopId?: string;
+  reason?: 'deleted' | 'suspended';
+};
+const accountTerminationSubscribers = new Set<(payload: AccountTerminationPayload) => void>();
+
+export function onAccountTerminated(
+  cb: (payload: AccountTerminationPayload) => void
+): () => void {
+  accountTerminationSubscribers.add(cb);
+  return () => {
+    accountTerminationSubscribers.delete(cb);
+  };
+}
+
+function getDirtyMap(colName: string): Map<string, Record<string, any>> {
+  if (!dirtyDocs.has(colName)) {
+    dirtyDocs.set(colName, new Map());
+  }
+  return dirtyDocs.get(colName)!;
+}
+
+function getDeletedSet(colName: string): Set<string> {
+  if (!deletedDocIds.has(colName)) {
+    deletedDocIds.set(colName, new Set());
+  }
+  return deletedDocIds.get(colName)!;
+}
+
+function markDocDirty(colName: string, docId: string, data: Record<string, any>) {
+  getDirtyMap(colName).set(docId, { ...data });
+  getDeletedSet(colName).delete(docId);
+}
+
+function markDocDeleted(colName: string, docId: string) {
+  getDirtyMap(colName).delete(docId);
+  getDeletedSet(colName).add(docId);
+}
 
 function getLocalCacheKey(colName: string): string {
   return `sb_col_cache_v1_${colName}`;
+}
+
+export function clearAllLocalDbCaches() {
+  try {
+    const cols = [
+      'users',
+      'shops',
+      'mobiles',
+      'sales',
+      'bills',
+      'expenses',
+      'khata',
+      'khataTransactions',
+      'purchases',
+      'backups',
+    ];
+    for (const c of cols) {
+      localStorage.removeItem(getLocalCacheKey(c));
+    }
+  } catch {
+    // ignore
+  }
 }
 
 function getCollectionMapSync(colName: string): Map<string, Record<string, any>> {
@@ -133,7 +210,287 @@ function reviveDates(val: any): any {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Cache-Busted Remote Storage Fetch (Prevents Stale Browser/CDN Responses)
+// ---------------------------------------------------------------------------
+
+async function downloadRemoteCollectionJson(
+  colName: string
+): Promise<Record<string, Record<string, any>> | null> {
+  try {
+    const url = `${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/_db/${colName}.json?t=${Date.now()}&r=${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        Pragma: 'no-cache',
+      },
+      cache: 'no-store',
+    });
+
+    if (res.ok) {
+      const text = await res.text();
+      if (text && text.trim().length > 0) {
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === 'object') {
+          return parsed;
+        }
+      }
+    }
+  } catch {
+    // Fallback to SDK download if direct fetch had a network hiccup
+  }
+
+  try {
+    const { data: blob, error: stErr } = await supabaseAdmin.storage
+      .from(SUPABASE_BUCKET)
+      .download(`_db/${colName}.json`);
+    if (!stErr && blob) {
+      const text = await blob.text();
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object') {
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Supabase Realtime Broadcast Channel (Instant <100ms Cross-Device Sync)
+// ---------------------------------------------------------------------------
+
+let syncChannel: ReturnType<typeof supabase.channel> | null = null;
+
+function initRealtimeSyncChannel() {
+  if (typeof window === 'undefined' || syncChannel) return;
+
+  try {
+    syncChannel = supabase.channel('hf_global_sync_v1', {
+      config: {
+        broadcast: { self: false },
+      },
+    });
+
+    syncChannel
+      .on('broadcast', { event: 'doc_mutation' }, ({ payload }) => {
+        if (!payload || payload.senderId === CLIENT_INSTANCE_ID) return;
+        const { colName, upserts, deletes } = payload;
+        if (!colName) return;
+
+        const map = getCollectionMapSync(colName);
+        let changed = false;
+
+        if (upserts && typeof upserts === 'object') {
+          for (const [docId, docData] of Object.entries(upserts)) {
+            map.set(docId, reviveDates(docData as Record<string, any>));
+            changed = true;
+          }
+        }
+
+        if (Array.isArray(deletes)) {
+          for (const docId of deletes) {
+            if (map.has(docId)) {
+              map.delete(docId);
+              changed = true;
+            }
+          }
+        }
+
+        if (changed) {
+          saveLocalCache(colName, map);
+          notifyCollectionListeners(colName);
+        }
+      })
+      .on('broadcast', { event: 'collection_persisted' }, ({ payload }) => {
+        if (!payload || payload.senderId === CLIENT_INSTANCE_ID) return;
+        const { colName } = payload;
+        if (colName) {
+          refreshCollectionFromRemote(colName).catch(() => {});
+        }
+      })
+      .on('broadcast', { event: 'account_terminated' }, ({ payload }) => {
+        if (!payload) return;
+        for (const cb of Array.from(accountTerminationSubscribers)) {
+          try {
+            cb(payload);
+          } catch (e) {
+            console.error('Account termination listener error:', e);
+          }
+        }
+      })
+      .subscribe();
+  } catch (err) {
+    console.warn('Realtime channel init notice:', err);
+  }
+}
+
+function broadcastDocMutation(
+  colName: string,
+  upserts?: Record<string, Record<string, any>>,
+  deletes?: string[]
+) {
+  initRealtimeSyncChannel();
+  if (!syncChannel) return;
+  try {
+    syncChannel
+      .send({
+        type: 'broadcast',
+        event: 'doc_mutation',
+        payload: {
+          senderId: CLIENT_INSTANCE_ID,
+          colName,
+          upserts: upserts ? serializeDates(upserts) : undefined,
+          deletes,
+          ts: Date.now(),
+        },
+      })
+      .catch(() => {});
+  } catch {
+    // ignore
+  }
+}
+
+function broadcastCollectionPersisted(colName: string) {
+  initRealtimeSyncChannel();
+  if (!syncChannel) return;
+  try {
+    syncChannel
+      .send({
+        type: 'broadcast',
+        event: 'collection_persisted',
+        payload: {
+          senderId: CLIENT_INSTANCE_ID,
+          colName,
+          ts: Date.now(),
+        },
+      })
+      .catch(() => {});
+  } catch {
+    // ignore
+  }
+}
+
+export function broadcastAccountTermination(payload: AccountTerminationPayload) {
+  initRealtimeSyncChannel();
+  for (const cb of Array.from(accountTerminationSubscribers)) {
+    try {
+      cb(payload);
+    } catch {}
+  }
+  if (!syncChannel) return;
+  try {
+    syncChannel
+      .send({
+        type: 'broadcast',
+        event: 'account_terminated',
+        payload: {
+          ...payload,
+          senderId: CLIENT_INSTANCE_ID,
+          ts: Date.now(),
+        },
+      })
+      .catch(() => {});
+  } catch {
+    // ignore
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Remote Collection Loading & Live Refresh
+// ---------------------------------------------------------------------------
+
+export async function refreshCollectionFromRemote(colName: string): Promise<boolean> {
+  try {
+    const parsed = await downloadRemoteCollectionJson(colName);
+    if (!parsed) return false;
+
+    const map = getCollectionMapSync(colName);
+    const dirty = getDirtyMap(colName);
+    const deleted = getDeletedSet(colName);
+
+    // Build merged map: remote truth + any in-flight local dirty/deleted docs
+    const nextMap = new Map<string, Record<string, any>>();
+    for (const [docId, docData] of Object.entries(parsed)) {
+      if (!deleted.has(docId)) {
+        nextMap.set(docId, reviveDates(docData as Record<string, any>));
+      }
+    }
+    for (const [docId, docData] of dirty.entries()) {
+      nextMap.set(docId, reviveDates(docData));
+    }
+
+    // Check if content meaningfully changed compared to current memory map
+    const currentSnapshotObj: Record<string, any> = {};
+    for (const [k, v] of map.entries()) currentSnapshotObj[k] = serializeDates(v);
+    const nextSnapshotObj: Record<string, any> = {};
+    for (const [k, v] of nextMap.entries()) nextSnapshotObj[k] = serializeDates(v);
+
+    const currentJson = JSON.stringify(currentSnapshotObj);
+    const nextJson = JSON.stringify(nextSnapshotObj);
+
+    if (currentJson !== nextJson) {
+      map.clear();
+      for (const [k, v] of nextMap.entries()) {
+        map.set(k, v);
+      }
+      lastRemoteJsonHash.set(colName, nextJson);
+      saveLocalCache(colName, map);
+      notifyCollectionListeners(colName);
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export async function refreshAllCollectionsNow(): Promise<void> {
+  const activeCols = new Set<string>([
+    ...Array.from(listeners.keys()),
+    'users',
+    'shops',
+  ]);
+  await Promise.all(
+    Array.from(activeCols).map((colName) => refreshCollectionFromRemote(colName))
+  );
+}
+
+// Start background sync loop & window focus listeners in browser
+if (typeof window !== 'undefined') {
+  initRealtimeSyncChannel();
+
+  // Poll active collections every 3 seconds so Mobile & Laptop stay 100% synced even across network switches
+  setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      refreshAllCollectionsNow().catch(() => {});
+    }
+  }, 3000);
+
+  window.addEventListener('focus', () => {
+    refreshAllCollectionsNow().catch(() => {});
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      refreshAllCollectionsNow().catch(() => {});
+    }
+  });
+
+  window.addEventListener('online', () => {
+    refreshAllCollectionsNow().catch(() => {});
+  });
+}
+
 async function ensureCollectionLoaded(colName: string): Promise<Map<string, Record<string, any>>> {
+  initRealtimeSyncChannel();
   const map = getCollectionMapSync(colName);
   if (loadedCollections.has(colName)) {
     return map;
@@ -144,7 +501,28 @@ async function ensureCollectionLoaded(colName: string): Promise<Map<string, Reco
 
   const promise = (async () => {
     try {
-      // 1. Try loading from PostgreSQL table if not known to be absent
+      // 1. Primary canonical load from Supabase Storage (`_db/${colName}.json`) with cache-busting
+      const parsed = await downloadRemoteCollectionJson(colName);
+      if (parsed && typeof parsed === 'object') {
+        const dirty = getDirtyMap(colName);
+        const deleted = getDeletedSet(colName);
+
+        map.clear();
+        for (const [docId, docData] of Object.entries(parsed)) {
+          if (!deleted.has(docId)) {
+            map.set(docId, reviveDates(docData as Record<string, any>));
+          }
+        }
+        for (const [docId, docData] of dirty.entries()) {
+          map.set(docId, reviveDates(docData));
+        }
+
+        saveLocalCache(colName, map);
+        loadedCollections.add(colName);
+        return map;
+      }
+
+      // 2. Fallback: Try loading from PostgreSQL table if Storage file doesn't exist yet
       if (pgTableStatus.get(colName) !== false) {
         const { data: rows, error: pgErr } = await supabaseAdmin
           .from(colName)
@@ -169,23 +547,6 @@ async function ensureCollectionLoaded(colName: string): Promise<Map<string, Reco
           }
         } else if (pgErr) {
           pgTableStatus.set(colName, false);
-        }
-      }
-
-      // 2. Load from Supabase Storage bucket (`shop-assets/_db/{colName}.json`)
-      const { data: blob, error: stErr } = await supabaseAdmin.storage
-        .from(SUPABASE_BUCKET)
-        .download(`_db/${colName}.json`);
-
-      if (!stErr && blob) {
-        const text = await blob.text();
-        const parsed = JSON.parse(text);
-        if (parsed && typeof parsed === 'object') {
-          map.clear();
-          for (const [docId, docData] of Object.entries(parsed)) {
-            map.set(docId, reviveDates(docData as Record<string, any>));
-          }
-          saveLocalCache(colName, map);
         }
       }
     } catch (err) {
@@ -214,7 +575,7 @@ function schedulePersistCollection(colName: string) {
   const timer = setTimeout(async () => {
     pendingPersistTimers.delete(colName);
     await persistCollectionToSupabase(colName, map);
-  }, 120);
+  }, 80);
 
   pendingPersistTimers.set(colName, timer);
 }
@@ -223,7 +584,36 @@ async function persistCollectionToSupabase(
   colName: string,
   map: Map<string, Record<string, any>>
 ) {
+  // Snapshot current dirty & deleted sets that we are committing right now
+  const dirty = getDirtyMap(colName);
+  const deleted = getDeletedSet(colName);
+  const committedDirty = new Map(dirty);
+  const committedDeleted = new Set(deleted);
+
   try {
+    // 1. Fetch latest remote collection first so we NEVER overwrite changes made on another device!
+    const remoteParsed = await downloadRemoteCollectionJson(colName);
+    if (remoteParsed && typeof remoteParsed === 'object') {
+      // Merge remote docs into our map unless they were modified or deleted locally
+      for (const [docId, remoteDoc] of Object.entries(remoteParsed)) {
+        if (!committedDeleted.has(docId) && !committedDirty.has(docId) && !dirty.has(docId)) {
+          map.set(docId, reviveDates(remoteDoc as Record<string, any>));
+        }
+      }
+      // Ensure all committed dirty docs are applied and deleted docs are removed
+      for (const [docId, dirtyDoc] of committedDirty.entries()) {
+        if (!deleted.has(docId)) {
+          map.set(docId, reviveDates(dirtyDoc));
+        }
+      }
+      for (const docId of committedDeleted.values()) {
+        if (!dirty.has(docId)) {
+          map.delete(docId);
+        }
+      }
+      saveLocalCache(colName, map);
+    }
+
     const plainObj: Record<string, any> = {};
     const byEmail: Record<string, Record<string, any>> = {};
 
@@ -242,8 +632,18 @@ async function persistCollectionToSupabase(
       }
     }
 
-    // 1. Save master collection JSON to Supabase Storage (`_db/{colName}.json`)
-    const jsonBytes = new Blob([JSON.stringify(plainObj, null, 2)], {
+    // Clear the dirty/deleted entries that were included in this persist
+    for (const [docId] of committedDirty.entries()) {
+      dirty.delete(docId);
+    }
+    for (const docId of committedDeleted.values()) {
+      deleted.delete(docId);
+    }
+
+    // 2. Upload merged master collection JSON to Supabase Storage (`_db/{colName}.json`)
+    const serializedMaster = JSON.stringify(plainObj, null, 2);
+    lastRemoteJsonHash.set(colName, JSON.stringify(plainObj));
+    const jsonBytes = new Blob([serializedMaster], {
       type: 'application/json',
     });
     await supabaseAdmin.storage
@@ -251,10 +651,13 @@ async function persistCollectionToSupabase(
       .upload(`_db/${colName}.json`, jsonBytes, {
         upsert: true,
         contentType: 'application/json',
+        cacheControl: '0',
       });
 
-    // 2. Also save per-email readable files in `shops/{email}/{colName}.json`
-    // so the admin can browse every email's exact data inside Supabase Storage!
+    // Notify all other connected devices that remote storage is updated
+    broadcastCollectionPersisted(colName);
+
+    // 3. Also save per-email readable files in `shops/{email}/{colName}.json`
     for (const [email, docsForEmail] of Object.entries(byEmail)) {
       const emailBlob = new Blob([JSON.stringify(docsForEmail, null, 2)], {
         type: 'application/json',
@@ -264,11 +667,12 @@ async function persistCollectionToSupabase(
         .upload(`shops/${email}/${colName}.json`, emailBlob, {
           upsert: true,
           contentType: 'application/json',
+          cacheControl: '0',
         })
         .catch(() => {});
     }
 
-    // 3. If PostgreSQL table exists, also upsert rows into PostgreSQL Table Editor
+    // 4. Mirror to PostgreSQL Table Editor if table exists
     if (pgTableStatus.get(colName) !== false) {
       const rows = Array.from(map.entries()).map(([docId, docData]) => {
         const clean = serializeDates(docData);
@@ -499,7 +903,9 @@ export async function setDoc(
   const existing = map.get(docRef.id);
   const updated = applyFieldMutations(existing, data, Boolean(options?.merge));
   map.set(docRef.id, updated);
+  markDocDirty(docRef.collectionName, docRef.id, updated);
   notifyCollectionListeners(docRef.collectionName);
+  broadcastDocMutation(docRef.collectionName, { [docRef.id]: updated });
   schedulePersistCollection(docRef.collectionName);
 }
 
@@ -508,7 +914,9 @@ export async function addDoc(colRef: CollectionRef, data: Record<string, any>): 
   const newId = generateId();
   const updated = applyFieldMutations(undefined, data, false);
   map.set(newId, updated);
+  markDocDirty(colRef.name, newId, updated);
   notifyCollectionListeners(colRef.name);
+  broadcastDocMutation(colRef.name, { [newId]: updated });
   schedulePersistCollection(colRef.name);
   return { __type: 'doc', collectionName: colRef.name, id: newId };
 }
@@ -518,17 +926,21 @@ export async function updateDoc(docRef: DocRef, data: Record<string, any>) {
   const existing = map.get(docRef.id) || {};
   const updated = applyFieldMutations(existing, data, true);
   map.set(docRef.id, updated);
+  markDocDirty(docRef.collectionName, docRef.id, updated);
   notifyCollectionListeners(docRef.collectionName);
+  broadcastDocMutation(docRef.collectionName, { [docRef.id]: updated });
   schedulePersistCollection(docRef.collectionName);
 }
 
 export async function deleteDoc(docRef: DocRef) {
   const map = await ensureCollectionLoaded(docRef.collectionName);
   map.delete(docRef.id);
+  markDocDeleted(docRef.collectionName, docRef.id);
   notifyCollectionListeners(docRef.collectionName);
+  broadcastDocMutation(docRef.collectionName, undefined, [docRef.id]);
   schedulePersistCollection(docRef.collectionName);
 
-  if (pgTableStatus.get(docRef.collectionName) === true) {
+  if (pgTableStatus.get(docRef.collectionName) !== false) {
     supabaseAdmin
       .from(docRef.collectionName)
       .delete()
@@ -542,6 +954,8 @@ export function onSnapshot(
   onNext: (snap: any) => void,
   onError?: (err: any) => void
 ) {
+  initRealtimeSyncChannel();
+
   if (target.__type === 'doc') {
     const colName = target.collectionName;
     const emit = () => {
@@ -552,7 +966,11 @@ export function onSnapshot(
     listeners.get(colName)!.add(emit);
 
     ensureCollectionLoaded(colName)
-      .then(emit)
+      .then(() => {
+        emit();
+        // Also trigger a fresh remote check so newly mounted listeners always get latest cloud state
+        refreshCollectionFromRemote(colName).catch(() => {});
+      })
       .catch((err) => onError?.(err));
 
     return () => {
@@ -573,7 +991,11 @@ export function onSnapshot(
   listeners.get(colName)!.add(emit);
 
   ensureCollectionLoaded(colName)
-    .then(emit)
+    .then(() => {
+      emit();
+      // Also trigger a fresh remote check so newly mounted listeners always get latest cloud state
+      refreshCollectionFromRemote(colName).catch(() => {});
+    })
     .catch((err) => onError?.(err));
 
   return () => {
@@ -584,6 +1006,8 @@ export function onSnapshot(
 export function writeBatch(_db?: any) {
   const ops: Array<() => Promise<void>> = [];
   const touchedCollections = new Set<string>();
+  const batchUpserts = new Map<string, Record<string, Record<string, any>>>();
+  const batchDeletes = new Map<string, string[]>();
 
   return {
     set(docRef: DocRef, data: Record<string, any>, options?: { merge?: boolean }) {
@@ -592,7 +1016,12 @@ export function writeBatch(_db?: any) {
         const existing = map.get(docRef.id);
         const updated = applyFieldMutations(existing, data, Boolean(options?.merge));
         map.set(docRef.id, updated);
+        markDocDirty(docRef.collectionName, docRef.id, updated);
         touchedCollections.add(docRef.collectionName);
+        if (!batchUpserts.has(docRef.collectionName)) {
+          batchUpserts.set(docRef.collectionName, {});
+        }
+        batchUpserts.get(docRef.collectionName)![docRef.id] = updated;
       });
     },
     update(docRef: DocRef, data: Record<string, any>) {
@@ -601,15 +1030,25 @@ export function writeBatch(_db?: any) {
         const existing = map.get(docRef.id) || {};
         const updated = applyFieldMutations(existing, data, true);
         map.set(docRef.id, updated);
+        markDocDirty(docRef.collectionName, docRef.id, updated);
         touchedCollections.add(docRef.collectionName);
+        if (!batchUpserts.has(docRef.collectionName)) {
+          batchUpserts.set(docRef.collectionName, {});
+        }
+        batchUpserts.get(docRef.collectionName)![docRef.id] = updated;
       });
     },
     delete(docRef: DocRef) {
       ops.push(async () => {
         const map = await ensureCollectionLoaded(docRef.collectionName);
         map.delete(docRef.id);
+        markDocDeleted(docRef.collectionName, docRef.id);
         touchedCollections.add(docRef.collectionName);
-        if (pgTableStatus.get(docRef.collectionName) === true) {
+        if (!batchDeletes.has(docRef.collectionName)) {
+          batchDeletes.set(docRef.collectionName, []);
+        }
+        batchDeletes.get(docRef.collectionName)!.push(docRef.id);
+        if (pgTableStatus.get(docRef.collectionName) !== false) {
           supabaseAdmin
             .from(docRef.collectionName)
             .delete()
@@ -624,6 +1063,11 @@ export function writeBatch(_db?: any) {
       }
       for (const colName of touchedCollections) {
         notifyCollectionListeners(colName);
+        broadcastDocMutation(
+          colName,
+          batchUpserts.get(colName),
+          batchDeletes.get(colName)
+        );
         schedulePersistCollection(colName);
       }
     },
@@ -632,7 +1076,8 @@ export function writeBatch(_db?: any) {
 
 /**
  * Completely deletes all shop data (mobiles, sales, bills, khata, khataTransactions,
- * expenses, backups, users, shops) and per-email storage files associated with a deleted account.
+ * expenses, backups, users, shops) and per-email storage files associated with a deleted account,
+ * and broadcasts a real-time termination signal so any open mobile/laptop session is signed out immediately.
  */
 export async function purgeAllShopDataForAccount(
   email?: string,
@@ -641,6 +1086,15 @@ export async function purgeAllShopDataForAccount(
 ): Promise<void> {
   const cleanEmail = (email || '').toLowerCase().trim();
   const derivedShopId = shopId || (uid ? `shop_${uid.slice(0, 8)}` : '');
+
+  // 1. Broadcast immediate real-time account termination to all connected devices
+  broadcastAccountTermination({
+    email: cleanEmail || undefined,
+    uid: uid || undefined,
+    shopId: derivedShopId || undefined,
+    reason: 'deleted',
+  });
+
   const dataCollections = [
     'mobiles',
     'sales',
@@ -649,12 +1103,14 @@ export async function purgeAllShopDataForAccount(
     'khataTransactions',
     'expenses',
     'backups',
+    'users',
+    'shops',
   ];
 
   for (const colName of dataCollections) {
     try {
       const map = await ensureCollectionLoaded(colName);
-      let changed = false;
+      const removedIds: string[] = [];
 
       for (const [docId, docData] of Array.from(map.entries())) {
         const docEmail = String(
@@ -663,23 +1119,26 @@ export async function purgeAllShopDataForAccount(
           .toLowerCase()
           .trim();
         const matchesEmail = cleanEmail && docEmail === cleanEmail;
-        const matchesUid = uid && (docData?.userId === uid || docData?.ownerUid === uid || docId === uid);
+        const matchesUid =
+          uid && (docData?.userId === uid || docData?.ownerUid === uid || docData?.uid === uid || docId === uid);
         const matchesShopId = derivedShopId && docData?.shopId === derivedShopId;
 
         if (matchesEmail || matchesUid || matchesShopId) {
           map.delete(docId);
-          changed = true;
-          if (pgTableStatus.get(colName) === true) {
+          markDocDeleted(colName, docId);
+          removedIds.push(docId);
+          if (pgTableStatus.get(colName) !== false) {
             supabaseAdmin.from(colName).delete().eq('id', docId).then(() => {});
           }
         }
       }
 
-      if (changed) {
+      if (removedIds.length > 0) {
         notifyCollectionListeners(colName);
+        broadcastDocMutation(colName, undefined, removedIds);
         schedulePersistCollection(colName);
       }
-    } catch (e) {
+    } catch {
       // ignore individual collection errors
     }
   }
@@ -689,8 +1148,7 @@ export async function purgeAllShopDataForAccount(
     const safeEmail = cleanEmail.replace(/[^a-z0-9@._-]/g, '_');
     const pathsToRemove = [
       ...dataCollections.map((c) => `shops/${safeEmail}/${c}.json`),
-      `shops/${safeEmail}/users.json`,
-      `shops/${safeEmail}/shops.json`,
+      `shops/${safeEmail}/backup.json`,
     ];
     try {
       await supabaseAdmin.storage.from(SUPABASE_BUCKET).remove(pathsToRemove);
@@ -699,4 +1157,3 @@ export async function purgeAllShopDataForAccount(
     }
   }
 }
-

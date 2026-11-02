@@ -118,16 +118,47 @@ export function onAuthStateChanged(
   if (persisted) {
     auth.currentUser = persisted;
     callback(persisted);
+
+    // Verify in background that the persisted user was not deleted from Supabase Auth
+    if (persisted.uid && persisted.uid !== 'master_admin' && !persisted.uid.startsWith('anon_')) {
+      supabaseAdmin.auth.admin.getUserById(persisted.uid).then(({ data, error }) => {
+        const isDeleted =
+          (error && (error.status === 404 || error.message?.toLowerCase().includes('not found'))) ||
+          (!error && !data?.user);
+        if (isDeleted) {
+          savePersistedUser(null);
+          supabase.auth.signOut().catch(() => {});
+          notifyAuthSubscribers(null);
+        }
+      }).catch(() => {});
+    }
   }
 
   // 2. Check Supabase session in background
   supabase.auth.getSession().then(({ data }) => {
     if (!authSubscribers.has(callback)) return;
     if (data?.session?.user) {
-      const mapped = createUserObject(data.session.user, data.session.refresh_token);
-      savePersistedUser(mapped);
-      auth.currentUser = mapped;
-      callback(mapped);
+      const uid = data.session.user.id;
+      supabaseAdmin.auth.admin.getUserById(uid).then(({ data: adminData, error: adminErr }) => {
+        const isDeleted =
+          (adminErr && (adminErr.status === 404 || adminErr.message?.toLowerCase().includes('not found'))) ||
+          (!adminErr && !adminData?.user);
+        if (isDeleted) {
+          savePersistedUser(null);
+          supabase.auth.signOut().catch(() => {});
+          notifyAuthSubscribers(null);
+          return;
+        }
+        const mapped = createUserObject(data.session!.user, data.session!.refresh_token);
+        savePersistedUser(mapped);
+        auth.currentUser = mapped;
+        callback(mapped);
+      }).catch(() => {
+        const mapped = createUserObject(data.session!.user, data.session!.refresh_token);
+        savePersistedUser(mapped);
+        auth.currentUser = mapped;
+        callback(mapped);
+      });
     } else if (!getPersistedUser()) {
       auth.currentUser = null;
       callback(null);
