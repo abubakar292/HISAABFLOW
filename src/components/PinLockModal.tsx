@@ -3,6 +3,7 @@ import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 import { pinLockService } from '../utils/pinLockService';
 import { useToast } from '../contexts/ToastContext';
+import { useAuth } from '../contexts/AuthContext';
 import { Lock, ShieldCheck, KeyRound, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { playSuccessSound, playErrorSound } from '../utils/soundEffects';
 
@@ -20,6 +21,8 @@ export const PinLockModal: React.FC<PinLockModalProps> = ({
   onSuccess,
 }) => {
   const { success, error } = useToast();
+  const { user, updateProfileData } = useAuth();
+  const userEmail = user?.email || '';
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -34,13 +37,13 @@ export const PinLockModal: React.FC<PinLockModalProps> = ({
     }
   }, [isOpen]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
     // If changing or disabling, must verify current PIN first
     if (mode === 'change' || mode === 'disable') {
-      if (!pinLockService.verifyPin(currentPin)) {
+      if (!pinLockService.verifyPin(currentPin, userEmail)) {
         setErrorMessage('Current PIN is incorrect.');
         try { playErrorSound(); } catch {}
         return;
@@ -48,7 +51,8 @@ export const PinLockModal: React.FC<PinLockModalProps> = ({
     }
 
     if (mode === 'disable') {
-      pinLockService.disable();
+      pinLockService.disable(userEmail);
+      updateProfileData({ pinEnabled: false, pinCodeHash: '' }).catch(() => {});
       try { playSuccessSound(); } catch {}
       success('5-Digit PIN Lock disabled.');
       onSuccess();
@@ -69,8 +73,9 @@ export const PinLockModal: React.FC<PinLockModalProps> = ({
       return;
     }
 
-    const ok = pinLockService.setPin(newPin);
+    const { ok, hash } = pinLockService.setPin(newPin, userEmail);
     if (ok) {
+      updateProfileData({ pinEnabled: true, pinCodeHash: hash }).catch(() => {});
       try { playSuccessSound(); } catch {}
       success(mode === 'change' ? '5-Digit PIN changed successfully!' : '5-Digit PIN Lock enabled successfully!');
       onSuccess();

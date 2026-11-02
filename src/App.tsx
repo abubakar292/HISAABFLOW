@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { ConfirmProvider } from './contexts/ConfirmContext';
 import { ProtectedRoute, PublicRoute } from './components/ProtectedRoute';
@@ -22,21 +22,32 @@ import { pinLockService } from './utils/pinLockService';
 import { PinLockOverlay } from './components/PinLockOverlay';
 
 function PinLockGate({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const activeEmail = user?.email || '';
+
   const [isLocked, setIsLocked] = useState(() => {
-    return pinLockService.isEnabled() && !pinLockService.isSessionUnlocked();
+    if (!activeEmail) return false;
+    return pinLockService.isEnabled(activeEmail) && !pinLockService.isSessionUnlocked(activeEmail);
   });
 
   useEffect(() => {
     const handleLockStateChange = () => {
-      setIsLocked(pinLockService.isEnabled() && !pinLockService.isSessionUnlocked());
+      if (!activeEmail) {
+        setIsLocked(false);
+        return;
+      }
+      setIsLocked(
+        pinLockService.isEnabled(activeEmail) && !pinLockService.isSessionUnlocked(activeEmail)
+      );
     };
+    handleLockStateChange();
     window.addEventListener('hisaabflow_lock_state_changed', handleLockStateChange);
     return () => window.removeEventListener('hisaabflow_lock_state_changed', handleLockStateChange);
-  }, []);
+  }, [activeEmail]);
 
   return (
     <>
-      {isLocked && (
+      {Boolean(user && activeEmail && isLocked) && (
         <PinLockOverlay onUnlock={() => setIsLocked(false)} />
       )}
       {children}

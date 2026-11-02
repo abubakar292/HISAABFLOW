@@ -86,8 +86,8 @@ export default function SettingsPage() {
   const [isRestoring, setIsRestoring] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 5-Digit PIN Lock State
-  const [pinLockEnabled, setPinLockEnabled] = useState(() => pinLockService.isEnabled());
+  // 5-Digit PIN Lock State (scoped per user email)
+  const [pinLockEnabled, setPinLockEnabled] = useState(() => pinLockService.isEnabled(user?.email));
   const [pinModalMode, setPinModalMode] = useState<'set' | 'change' | 'disable' | null>(null);
 
   const handleTogglePinLock = () => {
@@ -100,8 +100,17 @@ export default function SettingsPage() {
 
   const handleLockNow = () => {
     toast('Locking session...', 'info');
-    pinLockService.lockSession();
+    pinLockService.lockSession(user?.email);
   };
+
+  useEffect(() => {
+    const syncPinState = () => {
+      setPinLockEnabled(pinLockService.isEnabled(user?.email));
+    };
+    syncPinState();
+    window.addEventListener('hisaabflow_lock_state_changed', syncPinState);
+    return () => window.removeEventListener('hisaabflow_lock_state_changed', syncPinState);
+  }, [user?.email, shopProfile?.pinEnabled, shopProfile?.pinCodeHash]);
 
   useEffect(() => {
     if (shopProfile) {
@@ -919,7 +928,7 @@ export default function SettingsPage() {
           isOpen={Boolean(pinModalMode)}
           onClose={() => setPinModalMode(null)}
           mode={pinModalMode}
-          onSuccess={() => setPinLockEnabled(pinLockService.isEnabled())}
+          onSuccess={() => setPinLockEnabled(pinLockService.isEnabled(user?.email))}
         />
       )}
     </div>

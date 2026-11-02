@@ -25,6 +25,7 @@ import {
 } from '../utils/multiTenantService';
 import { getInitials, updateAppBranding } from '../utils/brandIdentity';
 import { getGoogleDriveAccessToken, getMasterDriveToken } from '../utils/googleAuthHelper';
+import { pinLockService } from '../utils/pinLockService';
 
 export const MASTER_ADMIN_EMAILS = [
   'threadsandtailsshop@gmail.com',
@@ -144,6 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             (authErr && (authErr.status === 404 || authErr.message?.toLowerCase().includes('not found'))) ||
             (!authErr && !authCheck?.user);
           if (isDeletedInAuth) {
+            pinLockService.clearPinForEmail(email);
             await deleteDoc(doc(db, 'users', firebaseUser.uid)).catch(() => {});
             await deleteDoc(doc(db, 'shops', firebaseUser.uid)).catch(() => {});
             await logout();
@@ -234,6 +236,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         customName || firebaseUser.displayName || ''
       );
       setShopProfile(profile);
+
+      // Sync cloud PIN state for this email (or upload local PIN if cloud has none yet)
+      const userEmail = firebaseUser.email || '';
+      if (profile.pinEnabled !== undefined) {
+        pinLockService.syncFromProfile(userEmail, profile.pinEnabled, profile.pinCodeHash);
+      } else if (pinLockService.isEnabled(userEmail)) {
+        const localHash = pinLockService.getPinHash(userEmail);
+        if (localHash) {
+          updateShopProfile(firebaseUser.uid, { pinEnabled: true, pinCodeHash: localHash }).catch(() => {});
+        }
+      }
 
       try {
         localStorage.setItem('cached_shop_id', profile.shopId);
@@ -350,6 +363,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           (error && (error.status === 404 || error.message?.toLowerCase().includes('not found'))) ||
           (!error && !data?.user);
         if (isDeleted && !isCancelled) {
+          pinLockService.clearPinForEmail(activeEmail);
           await logout();
         }
       } catch {
@@ -363,11 +377,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const matchEmail = payload.email && activeEmail && payload.email.toLowerCase().trim() === activeEmail;
       const matchUid = payload.uid && payload.uid === activeUid;
       if (matchEmail || matchUid) {
+        if (payload.reason === 'deleted') {
+          pinLockService.clearPinForEmail(activeEmail);
+        }
         logout();
       }
     });
 
-    // 2. Real-time listener on `shops/{uid}` so any profile/logo/name changes on Laptop sync to Mobile immediately
+    // 2. Real-time listener on `shops/{uid}` so any profile/logo/name/PIN changes on Laptop sync to Mobile immediately
     const unsubShop = onSnapshot(
       doc(db, 'shops', activeUid),
       (snap) => {
@@ -377,6 +394,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (data.status === 'suspended' && !isMaster) {
             logout();
             return;
+          }
+          if (data.pinEnabled !== undefined) {
+            pinLockService.syncFromProfile(activeEmail, data.pinEnabled, data.pinCodeHash);
           }
           setShopProfile((prev) => {
             const resolvedName = data.shopName || prev.shopName || 'Mobile Center';
@@ -417,7 +437,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             logout();
           }
         } else if (hasSeenUserDoc) {
-          // Document was deleted while user was online -> verify & kick out immediately
+          // Document was deleted while user was online -> wipe PIN & kick out immediately
+          pinLockService.clearPinForEmail(activeEmail);
           logout();
         } else {
           verifyAccountStillExistsInAuth();
@@ -634,6 +655,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
+      pinLockService.lockSession(user?.email);
       localStorage.removeItem('master_admin_session');
       localStorage.removeItem('cached_shop_id');
       localStorage.removeItem('cached_shop_name');

@@ -10,7 +10,8 @@ interface PinLockOverlayProps {
 }
 
 export const PinLockOverlay: React.FC<PinLockOverlayProps> = ({ onUnlock }) => {
-  const { logout, shopProfile } = useAuth();
+  const { user, logout, shopProfile } = useAuth();
+  const userEmail = user?.email || shopProfile?.ownerEmail || '';
   const [pin, setPin] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
@@ -64,18 +65,18 @@ export const PinLockOverlay: React.FC<PinLockOverlayProps> = ({ onUnlock }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleDigitPress, handleDeletePress, handleClear, isSuccess]);
 
-  // When 5 digits are entered, verify automatically
+  // When 5 digits are entered, verify automatically against this user's PIN
   useEffect(() => {
     if (pin.length !== 5) return;
 
     const timer = setTimeout(() => {
-      const isValid = pinLockService.verifyPin(pin);
+      const isValid = pinLockService.verifyPin(pin, userEmail);
       if (isValid) {
         setIsSuccess(true);
         try {
           playSuccessSound();
         } catch {}
-        pinLockService.unlockSession();
+        pinLockService.unlockSession(userEmail);
         setTimeout(() => {
           if (onUnlock) onUnlock();
         }, 600);
@@ -93,7 +94,7 @@ export const PinLockOverlay: React.FC<PinLockOverlayProps> = ({ onUnlock }) => {
     }, 180);
 
     return () => clearTimeout(timer);
-  }, [pin, onUnlock]);
+  }, [pin, onUnlock, userEmail]);
 
   return (
     <div className="fixed inset-0 z-[99999] flex items-center justify-center overflow-hidden select-none">

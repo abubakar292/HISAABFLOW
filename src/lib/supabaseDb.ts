@@ -5,6 +5,7 @@ import {
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,
 } from './supabase';
+import { pinLockService } from '../utils/pinLockService';
 
 // ---------------------------------------------------------------------------
 // Types & Sentinels
@@ -1086,6 +1087,11 @@ export async function purgeAllShopDataForAccount(
 ): Promise<void> {
   const cleanEmail = (email || '').toLowerCase().trim();
   const derivedShopId = shopId || (uid ? `shop_${uid.slice(0, 8)}` : '');
+
+  // 0. Clear local PIN keys for this deleted email immediately
+  if (cleanEmail) {
+    pinLockService.clearPinForEmail(cleanEmail);
+  }
 
   // 1. Broadcast immediate real-time account termination to all connected devices
   broadcastAccountTermination({

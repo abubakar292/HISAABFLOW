@@ -19,6 +19,8 @@ export interface ShopProfile {
   avatarUrl?: string;
   lastBackupTime?: string;
   googleDriveBackupFileId?: string;
+  pinEnabled?: boolean;
+  pinCodeHash?: string;
   createdAt?: any;
   updatedAt?: any;
 }
@@ -207,10 +209,12 @@ export async function updateShopProfile(uid: string, data: Partial<ShopProfile>)
 
   await setDoc(shopRef, payload, { merge: true });
 
-  // Also sync shopName and ownerName to the `users` collection so Admin Panel is always 100% synced
+  // Also sync shopName, ownerName, and PIN settings to the `users` collection so Admin Panel and cross-device auth stay 100% synced
   const userSyncPayload: Record<string, any> = { updatedAt: serverTimestamp() };
   if (data.shopName) userSyncPayload.shopName = data.shopName;
   if (data.ownerName) userSyncPayload.name = data.ownerName;
+  if (data.pinEnabled !== undefined) userSyncPayload.pinEnabled = data.pinEnabled;
+  if (data.pinCodeHash !== undefined) userSyncPayload.pinCodeHash = data.pinCodeHash;
   await setDoc(doc(db, 'users', uid), userSyncPayload, { merge: true }).catch(() => {});
 
   if (data.shopName || shortName) {
