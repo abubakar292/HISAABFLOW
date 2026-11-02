@@ -97,34 +97,49 @@ export const PinLockOverlay: React.FC<PinLockOverlayProps> = ({ onUnlock }) => {
 
   return (
     <div className="fixed inset-0 z-[99999] flex items-center justify-center overflow-hidden select-none">
-      {/* Styles for spreading color aura & shake animation */}
+      {/* Styles for breathing spread glow auras, card pop-in & shake animation */}
       <style>{`
-        @keyframes auraBreath {
+        /* Core Brand Color Spreading Wave */
+        @keyframes spreadGlowPrimary {
           0%, 100% {
-            transform: scale(0.92) translate(0px, 0px);
-            opacity: 0.65;
+            transform: scale(0.9) translate(0px, 0px);
+            opacity: 0.7;
           }
           50% {
-            transform: scale(1.18) translate(10px, -15px);
-            opacity: 0.9;
+            transform: scale(1.24) translate(12px, -18px);
+            opacity: 0.95;
           }
         }
 
-        @keyframes auraBreathSecondary {
+        /* Electric Violet & Magenta Ambient Wave */
+        @keyframes spreadGlowSecondary {
           0%, 100% {
-            transform: scale(1.15) rotate(0deg);
+            transform: scale(1.2) rotate(0deg);
             opacity: 0.55;
           }
           50% {
-            transform: scale(0.88) rotate(180deg);
-            opacity: 0.8;
+            transform: scale(0.85) rotate(180deg);
+            opacity: 0.85;
           }
         }
 
-        @keyframes cardPopIn {
+        /* Warm Amber & Gold Shimmer Wave */
+        @keyframes spreadGlowTertiary {
+          0%, 100% {
+            transform: scale(0.8) translate(-15px, 15px);
+            opacity: 0.45;
+          }
+          50% {
+            transform: scale(1.15) translate(20px, -10px);
+            opacity: 0.75;
+          }
+        }
+
+        /* Fluid Card Pop In */
+        @keyframes cardPopSmooth {
           0% {
             opacity: 0;
-            transform: scale(0.92) translateY(12px);
+            transform: scale(0.92) translateY(16px);
           }
           100% {
             opacity: 1;
@@ -132,51 +147,61 @@ export const PinLockOverlay: React.FC<PinLockOverlayProps> = ({ onUnlock }) => {
           }
         }
 
-        @keyframes pinShake {
+        /* Error Shake Animation */
+        @keyframes pinShakeSmooth {
           0%, 100% { transform: translateX(0); }
-          20% { transform: translateX(-9px); }
-          40% { transform: translateX(8px); }
+          20% { transform: translateX(-10px); }
+          40% { transform: translateX(9px); }
           60% { transform: translateX(-6px); }
           80% { transform: translateX(5px); }
         }
 
-        .animate-aura-primary {
-          animation: auraBreath 7s ease-in-out infinite;
+        .anim-spread-primary {
+          animation: spreadGlowPrimary 6.5s ease-in-out infinite;
         }
 
-        .animate-aura-secondary {
-          animation: auraBreathSecondary 10s ease-in-out infinite;
+        .anim-spread-secondary {
+          animation: spreadGlowSecondary 9s ease-in-out infinite;
         }
 
-        .animate-card-pop {
-          animation: cardPopIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        .anim-spread-tertiary {
+          animation: spreadGlowTertiary 8s ease-in-out infinite;
         }
 
-        .animate-shake {
-          animation: pinShake 0.45s ease-in-out;
+        .anim-card-pop-in {
+          animation: cardPopSmooth 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        .anim-shake-error {
+          animation: pinShakeSmooth 0.45s ease-in-out;
         }
       `}</style>
 
-      {/* ── Background Deep Tint + Spreading Color Auras ── */}
-      <div className="absolute inset-0 bg-[#0F0814]/85 backdrop-blur-xl transition-opacity duration-500" />
+      {/* ── Background Deep Atmosphere ── */}
+      <div className="absolute inset-0 bg-[#0C0612]/85 backdrop-blur-2xl transition-opacity duration-500" />
 
-      {/* Spreading Glow Orb 1 (Brand Deep Purple #522D60) */}
-      <div className="absolute w-[440px] h-[440px] rounded-full bg-gradient-to-tr from-[#522D60] via-[#7B2E8F] to-[#522D60]/20 blur-[90px] pointer-events-none animate-aura-primary" />
+      {/* ── SPREADING ANIMATED COLOR AURAS ── */}
+      {/* 1. Brand Core Royal Purple Glow (#522D60 & #7B2E8F) */}
+      <div className="absolute w-[500px] h-[500px] rounded-full bg-gradient-to-tr from-[#522D60] via-[#86198F] to-[#522D60]/20 blur-[105px] pointer-events-none anim-spread-primary" />
 
-      {/* Spreading Glow Orb 2 (Bright Violet & Soft Amber Gold) */}
-      <div className="absolute w-[360px] h-[360px] rounded-full bg-gradient-to-br from-[#A855F7]/40 via-[#EC4899]/30 to-[#F59E0B]/20 blur-[85px] pointer-events-none animate-aura-secondary" />
+      {/* 2. Radiant Neon Violet & Orchid Bloom */}
+      <div className="absolute w-[420px] h-[420px] rounded-full bg-gradient-to-bl from-[#A855F7]/50 via-[#E879F9]/40 to-[#9333EA]/20 blur-[95px] pointer-events-none anim-spread-secondary" />
 
-      {/* Subtle floating ambient particle ring */}
-      <div className="absolute w-[500px] h-[500px] rounded-full border border-purple-500/10 pointer-events-none scale-110" />
+      {/* 3. Golden Amber Warmth (Synchronized with the Idea Lightbulb) */}
+      <div className="absolute w-[360px] h-[360px] rounded-full bg-gradient-to-tr from-[#F59E0B]/35 via-[#FBBF24]/25 to-transparent blur-[85px] pointer-events-none anim-spread-tertiary" />
 
-      {/* ── The Center Popup Card ── */}
-      <div className={`relative z-10 w-[92%] max-w-[390px] bg-white/95 backdrop-blur-2xl rounded-3xl p-6 sm:p-7 shadow-[0_24px_60px_-15px_rgba(82,45,96,0.35)] border border-purple-100 flex flex-col items-center text-center animate-card-pop ${
-        isShaking ? 'animate-shake' : ''
+      {/* 4. Elegant Ambient Concentric Ring */}
+      <div className="absolute w-[540px] h-[540px] rounded-full border border-purple-400/15 pointer-events-none scale-105" />
+      <div className="absolute w-[680px] h-[680px] rounded-full border border-purple-300/10 pointer-events-none scale-110" />
+
+      {/* ── THE CENTER POPUP CARD ── */}
+      <div className={`relative z-10 w-[92%] max-w-[390px] bg-white/95 backdrop-blur-2xl rounded-3xl p-6 sm:p-7 shadow-[0_24px_70px_rgba(82,45,96,0.38),0_0_40px_rgba(168,85,247,0.18)] border border-purple-200/70 flex flex-col items-center text-center anim-card-pop-in ${
+        isShaking ? 'anim-shake-error' : ''
       }`}>
         
-        {/* Animated Brand Mascot Logo at top: Mobile moving its hand saying hello */}
+        {/* Animated Brand Mascot Logo: Smartphone smoothly waving hand saying hello */}
         <div className="mb-2">
-          <WavingMobileLogo size={105} />
+          <WavingMobileLogo size={110} />
         </div>
 
         {/* Brand Greeting Heading */}
@@ -241,7 +266,7 @@ export const PinLockOverlay: React.FC<PinLockOverlayProps> = ({ onUnlock }) => {
           )}
         </div>
 
-        {/* ── Numeric Keypad (Clean, Tactile & Compact) ── */}
+        {/* ── Numeric Keypad (Clean, Tactile & Responsive) ── */}
         <div className="grid grid-cols-3 gap-2.5 w-full max-w-[280px]">
           {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
             <button

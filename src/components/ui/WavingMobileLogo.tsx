@@ -1,234 +1,345 @@
 import React from 'react';
 
 interface WavingMobileLogoProps {
-  size?: number; // size in pixels, default 110
+  size?: number; // size in pixels, default 115
   className?: string;
 }
 
-export const WavingMobileLogo: React.FC<WavingMobileLogoProps> = ({ size = 110, className = '' }) => {
+export const WavingMobileLogo: React.FC<WavingMobileLogoProps> = ({ size = 115, className = '' }) => {
   return (
     <div
       className={`relative select-none flex items-center justify-center ${className}`}
       style={{ width: size, height: size }}
     >
       <style>{`
-        @keyframes mobileHandWave {
-          0% { transform: rotate(0deg); }
-          15% { transform: rotate(26deg); }
-          30% { transform: rotate(-8deg); }
-          45% { transform: rotate(24deg); }
-          60% { transform: rotate(-4deg); }
-          75% { transform: rotate(18deg); }
-          100% { transform: rotate(0deg); }
+        /* Smooth, natural multi-phase hand waving animation */
+        @keyframes fluidHandWave {
+          0% {
+            transform: rotate(0deg);
+          }
+          14% {
+            transform: rotate(28deg);
+          }
+          28% {
+            transform: rotate(-10deg);
+          }
+          42% {
+            transform: rotate(26deg);
+          }
+          56% {
+            transform: rotate(-6deg);
+          }
+          70% {
+            transform: rotate(20deg);
+          }
+          84% {
+            transform: rotate(-2deg);
+          }
+          100% {
+            transform: rotate(0deg);
+          }
         }
 
-        @keyframes mascotBreathing {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-3px); }
+        /* Joyful subtle floating bounce */
+        @keyframes mascotJoyBounce {
+          0%, 100% {
+            transform: translateY(0px) rotate(0deg);
+          }
+          30% {
+            transform: translateY(-4px) rotate(1.2deg);
+          }
+          70% {
+            transform: translateY(-2px) rotate(-1.2deg);
+          }
         }
 
-        @keyframes lightbulbGlow {
-          0%, 100% { opacity: 0.85; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.12); }
+        /* Lightbulb radiant energy pulse */
+        @keyframes lightbulbPulse {
+          0%, 100% {
+            transform: scale(1);
+            opacity: 0.88;
+          }
+          50% {
+            transform: scale(1.18);
+            opacity: 1;
+          }
         }
 
-        @keyframes mascotBlink {
-          0%, 90%, 100% { transform: scaleY(1); }
-          95% { transform: scaleY(0.1); }
+        /* Lightbulb spark rays spinning & breathing */
+        @keyframes raysShine {
+          0%, 100% {
+            opacity: 0.65;
+            transform: scale(0.95);
+          }
+          50% {
+            opacity: 1;
+            transform: scale(1.15);
+          }
         }
 
-        .animate-hand-wave {
+        /* Natural blink cycle */
+        @keyframes eyeBlink {
+          0%, 88%, 94%, 100% {
+            transform: scaleY(1);
+          }
+          91% {
+            transform: scaleY(0.08);
+          }
+        }
+
+        /* Little wind / waving trail breeze */
+        @keyframes waveTrail {
+          0%, 100% {
+            opacity: 0.3;
+            transform: translateX(0) scale(0.9);
+          }
+          50% {
+            opacity: 0.95;
+            transform: translateX(3px) scale(1.1);
+          }
+        }
+
+        .anim-hand-wave {
           transform-origin: 82px 76px;
-          animation: mobileHandWave 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+          animation: fluidHandWave 2.4s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
         }
 
-        .animate-mascot-idle {
-          animation: mascotBreathing 3s ease-in-out infinite;
+        .anim-mascot-joy {
+          animation: mascotJoyBounce 3.2s ease-in-out infinite;
         }
 
-        .animate-lightbulb {
+        .anim-bulb-core {
           transform-origin: 94px 34px;
-          animation: lightbulbGlow 2.4s ease-in-out infinite;
+          animation: lightbulbPulse 2.2s ease-in-out infinite;
         }
 
-        .animate-blink {
-          transform-origin: 64px 74px;
-          animation: mascotBlink 4s infinite;
+        .anim-bulb-rays {
+          transform-origin: 94px 34px;
+          animation: raysShine 2s ease-in-out infinite;
+        }
+
+        .anim-eye-blink {
+          transform-origin: 64px 67px;
+          animation: eyeBlink 3.8s ease-in-out infinite;
+        }
+
+        .anim-wave-trail {
+          animation: waveTrail 1.8s ease-in-out infinite;
         }
       `}</style>
 
-      {/* SVG Mascot Character matching the official HisaabFlow brand icon */}
+      {/* High-Fidelity SVG Mascot */}
       <svg
         viewBox="0 0 140 140"
         width="100%"
         height="100%"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
-        className="overflow-visible drop-shadow-[0_12px_24px_rgba(82,45,96,0.28)]"
+        className="overflow-visible drop-shadow-[0_16px_32px_rgba(82,45,96,0.35)]"
       >
         <defs>
-          {/* Card subtle gradient */}
-          <linearGradient id="cardGrad" x1="0" y1="0" x2="140" y2="140" gradientUnits="userSpaceOnUse">
-            <stop stopColor="#5D336E" />
-            <stop offset="1" stopColor="#452352" />
+          {/* Card Outer Deep Royal Gradient */}
+          <linearGradient id="cardBg" x1="10" y1="10" x2="130" y2="130" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#5E316E" />
+            <stop offset="0.5" stopColor="#522D60" />
+            <stop offset="1" stopColor="#3B1C47" />
           </linearGradient>
 
-          {/* Lightbulb glow gradient */}
-          <radialGradient id="bulbGlowGrad" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#FDE047" stopOpacity="0.9" />
-            <stop offset="50%" stopColor="#EAB308" stopOpacity="0.4" />
+          {/* Card Border Glow */}
+          <linearGradient id="cardBorder" x1="0" y1="0" x2="140" y2="140" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#C084FC" stopOpacity="0.8" />
+            <stop offset="0.5" stopColor="#A855F7" stopOpacity="0.3" />
+            <stop offset="1" stopColor="#F472B6" stopOpacity="0.5" />
+          </linearGradient>
+
+          {/* Lightbulb Sunburst Gradient */}
+          <radialGradient id="bulbGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#FEF08A" stopOpacity="0.95" />
+            <stop offset="45%" stopColor="#FACC15" stopOpacity="0.5" />
             <stop offset="100%" stopColor="#EAB308" stopOpacity="0" />
           </radialGradient>
 
-          {/* Phone body sheen */}
-          <linearGradient id="phoneScreenGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop stopColor="#F0F7FF" />
-            <stop offset="1" stopColor="#D9ECFD" />
+          {/* Smartphone Screen Glass */}
+          <linearGradient id="screenGlass" x1="0" y1="0" x2="0" y2="1">
+            <stop stopColor="#F0F8FF" />
+            <stop offset="0.6" stopColor="#E2F1FE" />
+            <stop offset="1" stopColor="#CCE6FD" />
           </linearGradient>
 
-          {/* Card Border glow */}
-          <linearGradient id="borderGrad" x1="0" y1="0" x2="140" y2="140">
-            <stop stopColor="#A855F7" stopOpacity="0.6" />
-            <stop offset="1" stopColor="#E9D5FF" stopOpacity="0.2" />
+          {/* Smartphone Metallic Edge */}
+          <linearGradient id="phoneMetal" x1="0" y1="0" x2="1" y2="1">
+            <stop stopColor="#FFFFFF" />
+            <stop offset="0.5" stopColor="#E2E8F0" />
+            <stop offset="1" stopColor="#94A3B8" />
           </linearGradient>
+
+          {/* Cheeks soft blush */}
+          <radialGradient id="blushGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#FB7185" stopOpacity="0.75" />
+            <stop offset="100%" stopColor="#F43F5E" stopOpacity="0" />
+          </radialGradient>
         </defs>
 
-        {/* 1. App Icon Rounded Card Container (#522D60) */}
+        {/* 1. App Rounded Card Container (#522D60) */}
         <rect
           x="6"
           y="6"
           width="128"
           height="128"
           rx="32"
-          fill="url(#cardGrad)"
-          stroke="url(#borderGrad)"
+          fill="url(#cardBg)"
+          stroke="url(#cardBorder)"
           strokeWidth="2.5"
         />
 
-        {/* Subtle interior sheen */}
+        {/* Diagonal Gloss Sheen across card */}
         <path
-          d="M 6 38 C 6 20 20 6 38 6 L 102 6 C 60 20 20 60 6 102 Z"
+          d="M 6 42 C 6 22 22 6 42 6 L 102 6 C 58 22 22 62 6 106 Z"
           fill="white"
-          fillOpacity="0.06"
+          fillOpacity="0.08"
         />
 
-        {/* 2. Character Body Group with gentle breathing motion */}
-        <g className="animate-mascot-idle">
-          {/* Mascot Feet */}
-          <ellipse cx="54" cy="113" rx="4.5" ry="3" fill="#1E1424" />
-          <ellipse cx="74" cy="113" rx="4.5" ry="3" fill="#1E1424" />
+        {/* 2. Character Body with Joyful Floating Animation */}
+        <g className="anim-mascot-joy">
+          {/* Mascot Shoes */}
+          <ellipse cx="53" cy="114" rx="5" ry="3.2" fill="#18111D" />
+          <ellipse cx="73" cy="114" rx="5" ry="3.2" fill="#18111D" />
 
-          {/* Legs */}
-          <line x1="54" y1="104" x2="54" y2="112" stroke="#1E1424" strokeWidth="3" strokeLinecap="round" />
-          <line x1="74" y1="104" x2="74" y2="112" stroke="#1E1424" strokeWidth="3" strokeLinecap="round" />
+          {/* Mascot Legs */}
+          <line x1="53" y1="104" x2="53" y2="113" stroke="#18111D" strokeWidth="3.2" strokeLinecap="round" />
+          <line x1="73" y1="104" x2="73" y2="113" stroke="#18111D" strokeWidth="3.2" strokeLinecap="round" />
 
-          {/* Left Arm (Relaxed at side) */}
+          {/* Left Arm (Resting warmly on hip) */}
           <path
-            d="M 45 74 Q 37 81 41 91"
-            stroke="#1E1424"
-            strokeWidth="3.2"
+            d="M 45 74 Q 35 81 40 91"
+            stroke="#18111D"
+            strokeWidth="3.4"
             strokeLinecap="round"
             fill="none"
           />
-          {/* Left Hand */}
-          <circle cx="41.5" cy="91.5" r="2.6" fill="#1E1424" />
+          <circle cx="40.5" cy="91.5" r="2.8" fill="#18111D" />
 
           {/* 3. Smartphone Body */}
-          {/* Phone Outer Chassis Shadow */}
+          {/* Soft chassis drop shadow */}
           <rect
             x="46"
             y="42"
             width="36"
-            height="62"
-            rx="8"
+            height="63"
+            rx="8.5"
             fill="#CBD5E1"
+            opacity="0.8"
           />
 
-          {/* Phone Outer Chassis (Clean White/Silver) */}
+          {/* Smartphone White Metallic Chassis */}
           <rect
             x="45"
             y="41"
             width="36"
-            height="62"
-            rx="8"
-            fill="#FFFFFF"
-            stroke="#94A3B8"
+            height="63"
+            rx="8.5"
+            fill="url(#phoneMetal)"
+            stroke="#64748B"
             strokeWidth="1.2"
           />
 
-          {/* Phone Screen Glass */}
+          {/* Screen Glass */}
           <rect
             x="48"
             y="46"
             width="30"
-            height="50"
-            rx="5"
-            fill="url(#phoneScreenGrad)"
+            height="51"
+            rx="5.5"
+            fill="url(#screenGlass)"
           />
 
-          {/* Phone Top Ear-Speaker pill */}
+          {/* Screen diagonal light reflection */}
+          <path
+            d="M 48 58 L 68 46 L 74 46 L 48 64 Z"
+            fill="white"
+            fillOpacity="0.35"
+          />
+
+          {/* Speaker ear slit */}
           <rect
             x="59"
             y="43.5"
             width="8"
             height="1.8"
             rx="0.9"
-            fill="#64748B"
+            fill="#475569"
           />
 
-          {/* Cute Face on the Screen */}
-          <g className="animate-blink">
+          {/* 4. Cute Face on Screen with Natural Blinking */}
+          <g className="anim-eye-blink">
             {/* Left Eye */}
-            <circle cx="57" cy="67" r="2.2" fill="#1E293B" />
-            <circle cx="56.3" cy="66.3" r="0.8" fill="#FFFFFF" />
+            <circle cx="56.5" cy="67" r="2.4" fill="#0F172A" />
+            <circle cx="55.8" cy="66.2" r="0.9" fill="#FFFFFF" />
+            <circle cx="57.4" cy="67.8" r="0.4" fill="#FFFFFF" />
 
             {/* Right Eye */}
-            <circle cx="69" cy="67" r="2.2" fill="#1E293B" />
-            <circle cx="68.3" cy="66.3" r="0.8" fill="#FFFFFF" />
+            <circle cx="69.5" cy="67" r="2.4" fill="#0F172A" />
+            <circle cx="68.8" cy="66.2" r="0.9" fill="#FFFFFF" />
+            <circle cx="70.4" cy="67.8" r="0.4" fill="#FFFFFF" />
 
-            {/* Blushing Cheeks */}
-            <ellipse cx="54" cy="72" rx="2.5" ry="1.2" fill="#F43F5E" fillOpacity="0.45" />
-            <ellipse cx="72" cy="72" rx="2.5" ry="1.2" fill="#F43F5E" fillOpacity="0.45" />
+            {/* Rosy Cheeks */}
+            <ellipse cx="53.5" cy="72" rx="3.2" ry="1.6" fill="url(#blushGlow)" />
+            <ellipse cx="72.5" cy="72" rx="3.2" ry="1.6" fill="url(#blushGlow)" />
 
-            {/* Happy Smile Mouth */}
+            {/* Sweet Smile Mouth with Tongue */}
             <path
-              d="M 60.5 73.5 Q 63 77.5 65.5 73.5"
-              stroke="#1E293B"
-              strokeWidth="1.8"
+              d="M 60 72.8 Q 63 77.2 66 72.8"
+              stroke="#0F172A"
+              strokeWidth="2"
+              strokeLinecap="round"
+              fill="none"
+            />
+            {/* Tiny tongue highlight */}
+            <path
+              d="M 61.8 74.2 Q 63 76.2 64.2 74.2"
+              stroke="#FB7185"
+              strokeWidth="1.2"
               strokeLinecap="round"
               fill="none"
             />
           </g>
 
-          {/* Home indicator bar at bottom of screen */}
+          {/* Home indicator bar at bottom */}
           <rect
             x="58"
-            y="92"
+            y="93"
             width="10"
             height="1.5"
             rx="0.75"
             fill="#94A3B8"
           />
 
-          {/* 4. Glowing Lightbulb above top-right corner (Idea/Smart Symbol) */}
-          <g className="animate-lightbulb">
-            {/* Ambient Radial Aura */}
-            <circle cx="94" cy="34" r="16" fill="url(#bulbGlowGrad)" />
+          {/* 5. Glowing Idea Lightbulb (Top-Right) */}
+          <g>
+            {/* Ambient Sunburst Aura */}
+            <circle cx="94" cy="33" r="18" fill="url(#bulbGlow)" className="anim-bulb-core" />
 
-            {/* Spark Rays */}
-            <line x1="94" y1="18" x2="94" y2="22" stroke="#FDE047" strokeWidth="2.2" strokeLinecap="round" />
-            <line x1="106" y1="24" x2="103" y2="27" stroke="#FDE047" strokeWidth="2.2" strokeLinecap="round" />
-            <line x1="109" y1="34" x2="105" y2="34" stroke="#FDE047" strokeWidth="2.2" strokeLinecap="round" />
-            <line x1="82" y1="24" x2="85" y2="27" stroke="#FDE047" strokeWidth="2.2" strokeLinecap="round" />
+            {/* Radiating Light Rays */}
+            <g className="anim-bulb-rays">
+              <line x1="94" y1="16" x2="94" y2="21" stroke="#FDE047" strokeWidth="2.4" strokeLinecap="round" />
+              <line x1="107" y1="23" x2="103" y2="27" stroke="#FDE047" strokeWidth="2.4" strokeLinecap="round" />
+              <line x1="110" y1="34" x2="105" y2="34" stroke="#FDE047" strokeWidth="2.4" strokeLinecap="round" />
+              <line x1="105" y1="45" x2="101" y2="42" stroke="#FDE047" strokeWidth="2.4" strokeLinecap="round" />
+              <line x1="81" y1="23" x2="85" y2="27" stroke="#FDE047" strokeWidth="2.4" strokeLinecap="round" />
+            </g>
 
             {/* Lightbulb Glass */}
             <path
-              d="M 94 24 C 90 24 87 27 87 31 C 87 33.5 88.5 35.5 90 37 L 90 39.5 C 90 40.5 91 41 92 41 L 96 41 C 97 41 98 40.5 98 39.5 L 98 37 C 99.5 35.5 101 33.5 101 31 C 101 27 98 24 94 24 Z"
-              fill="#FACC15"
-              stroke="#CA8A04"
-              strokeWidth="1"
+              d="M 94 23 C 89.5 23 86.5 26.5 86.5 30.5 C 86.5 33.2 88 35.3 89.5 37 L 89.5 39.5 C 89.5 40.5 90.5 41.2 91.5 41.2 L 96.5 41.2 C 97.5 41.2 98.5 40.5 98.5 39.5 L 98.5 37 C 100 35.3 101.5 33.2 101.5 30.5 C 101.5 26.5 98.5 23 94 23 Z"
+              fill="#FBBF24"
+              stroke="#D97706"
+              strokeWidth="1.2"
             />
-            {/* Filament highlight */}
+
+            {/* Glowing Bulb Core */}
+            <circle cx="94" cy="30" r="3.5" fill="#FEF08A" />
+
+            {/* Filament curve */}
             <path
               d="M 92 30 Q 94 27 96 30"
               stroke="#FFFFFF"
@@ -236,35 +347,50 @@ export const WavingMobileLogo: React.FC<WavingMobileLogoProps> = ({ size = 110, 
               strokeLinecap="round"
               fill="none"
             />
-            {/* Bulb Base */}
-            <rect x="91" y="41" width="6" height="2.5" rx="1" fill="#71717A" />
+
+            {/* Metal socket */}
+            <rect x="91" y="41.2" width="6" height="2.5" rx="1" fill="#64748B" />
           </g>
 
-          {/* 5. Right Arm & Waving Hand (Saying "Hello!") */}
-          <g className="animate-hand-wave">
-            {/* Arm swinging up to wave */}
+          {/* 6. Animated Waving Arm & Hand (Saying Hello to the User) */}
+          <g className="anim-hand-wave">
+            {/* Curving arm swinging up */}
             <path
-              d="M 81 74 Q 92 68 95 56"
-              stroke="#1E1424"
-              strokeWidth="3.4"
+              d="M 81 74 Q 93 68 96 55"
+              stroke="#18111D"
+              strokeWidth="3.6"
               strokeLinecap="round"
               fill="none"
             />
-            {/* Open Palm Waving */}
-            <circle cx="95.5" cy="54.5" r="3.2" fill="#1E1424" />
-            {/* Cute Fingers Spread */}
-            <circle cx="94" cy="50" r="1.5" fill="#1E1424" />
-            <circle cx="98" cy="51" r="1.5" fill="#1E1424" />
-            <circle cx="100.5" cy="54.5" r="1.5" fill="#1E1424" />
-            {/* Little wave wind accents */}
-            <path
-              d="M 104 46 Q 107 50 105 55"
-              stroke="#FDE047"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-              fill="none"
-              opacity="0.85"
-            />
+
+            {/* Open Palm */}
+            <circle cx="96.5" cy="53.5" r="3.6" fill="#18111D" />
+
+            {/* Cute Fingers Spreading & Waving */}
+            <circle cx="93.8" cy="48.5" r="1.6" fill="#18111D" />
+            <circle cx="97.8" cy="49" r="1.6" fill="#18111D" />
+            <circle cx="101" cy="51.5" r="1.6" fill="#18111D" />
+            <circle cx="102" cy="55.5" r="1.4" fill="#18111D" />
+
+            {/* Waving sparkle breeze trails */}
+            <g className="anim-wave-trail">
+              <path
+                d="M 104 44 Q 108 48 106 53"
+                stroke="#FACC15"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                fill="none"
+              />
+              <path
+                d="M 108 47 Q 111 51 109 55"
+                stroke="#E879F9"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                fill="none"
+              />
+              {/* Little sparkle star */}
+              <circle cx="110" cy="43" r="1.2" fill="#FDE047" />
+            </g>
           </g>
         </g>
       </svg>
