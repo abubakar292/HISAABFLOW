@@ -68,7 +68,7 @@ export function PrintPromptModal({ isOpen, onClose, billData, profit }: PrintPro
             <Check className="w-8 h-8 text-accent-emerald" />
           </motion.div>
           
-          <h3 className="font-bold text-lg mb-1 text-slate-800">Sale Completed! 🎉</h3>
+          <h3 className="font-bold text-lg mb-1 text-slate-800">Sale Completed</h3>
           <p className="text-slate-500 text-sm mb-2">
             Profit: <span className="text-accent-emerald font-bold">Rs. {profit.toLocaleString()}</span>
           </p>

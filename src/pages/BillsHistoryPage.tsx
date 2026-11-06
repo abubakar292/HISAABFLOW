@@ -74,6 +74,7 @@ export default function BillsHistoryPage() {
       (b.customerPhone && b.customerPhone.includes(term)) ||
       (b.billNumber && b.billNumber.toLowerCase().includes(term)) ||
       (b.id && b.id.toLowerCase().includes(term)) ||
+      ((term.includes('quick')) && (b.isQuickSale || b.items?.some((it: any) => it.isQuickSale))) ||
       matchesItem
     );
 
@@ -223,7 +224,14 @@ export default function BillsHistoryPage() {
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-900">{b.customerName || 'Walk-in'}</td>
                     <td className="px-4 py-3">
-                      <Badge variant="info">{b.items?.length || 0} Items</Badge>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <Badge variant="info">{b.items?.length || 0} Items</Badge>
+                        {(b.isQuickSale || b.items?.some((it: any) => it.isQuickSale)) && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-800 border border-amber-500/30">
+                            Quick Sale
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 font-bold text-slate-900">
                       Rs. {(b.totalSellPrice || b.totalSellAmount || b.sellPrice || (b.items?.reduce((s: number, it: any) => s + (Number(it.sellPrice) || 0), 0)) || 0).toLocaleString()}

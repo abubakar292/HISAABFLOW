@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { 
   TrendingUp, Package, DollarSign,
-  Plus, BarChart3, Clock, Smartphone, ReceiptText, BookOpen
+  Plus, BarChart3, Clock, Smartphone, ReceiptText, BookOpen, Zap
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
@@ -245,8 +245,15 @@ export default function DashboardPage() {
         {/* Quick Launch Shortcuts */}
         <div className="flex flex-wrap items-center gap-2">
           <button
+            onClick={() => navigate('/quick-sale')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-400 hover:bg-amber-500 text-obsidian transition-all active:scale-95 shadow-xs cursor-pointer"
+          >
+            <Zap className="w-3.5 h-3.5 fill-current" />
+            <span>Quick Sale</span>
+          </button>
+          <button
             onClick={() => navigate('/purchase-mobile')}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-[#522D60] text-white hover:bg-[#42244D] transition-all active:scale-95 shadow-xs"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-[#522D60] text-white hover:bg-[#42244D] transition-all active:scale-95 shadow-xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Stock</span>

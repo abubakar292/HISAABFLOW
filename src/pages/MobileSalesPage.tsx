@@ -6,9 +6,10 @@ import { SearchBar } from '../components/ui/SearchBar';
 import { Badge } from '../components/ui/Badge';
 import { Select } from '../components/ui/Select';
 import { useToast } from '../contexts/ToastContext';
+import { useNavigate } from 'react-router-dom';
 import { 
   FileText, Undo2, AlertCircle, Filter, RotateCcw, MessageCircle, 
-  Smartphone, ChevronDown, ChevronUp, Layers, CheckCircle2, DollarSign, Bluetooth, X 
+  Smartphone, ChevronDown, ChevronUp, Layers, CheckCircle2, DollarSign, Bluetooth, X, Zap 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -48,6 +49,7 @@ const PAYMENT_OPTIONS = [
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All Sales' },
   { value: 'active', label: 'Active Sales (Completed)' },
+  { value: 'quick_sale', label: 'Quick Sales' },
   { value: 'returned', label: 'Returned Only' },
 ];
 
@@ -61,6 +63,7 @@ const DATE_PRESETS = [
 ];
 
 export default function MobileSalesPage() {
+  const navigate = useNavigate();
   const { user, shopProfile, currentShopId } = useAuth();
   const [sales, setSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -157,7 +160,10 @@ export default function MobileSalesPage() {
           (s.billNumber && s.billNumber.toLowerCase().includes(term)) ||
           (s.id && s.id.toLowerCase().includes(term)) ||
           (s.imei1 && s.imei1.includes(term)) ||
-          (s.imei2 && s.imei2.includes(term))
+          (s.imei2 && s.imei2.includes(term)) ||
+          (s.supplierName && s.supplierName.toLowerCase().includes(term)) ||
+          (s.supplier && s.supplier.toLowerCase().includes(term)) ||
+          ((term.includes('quick') || term.includes('direct')) && (s.itemType === 'quick_sale' || s.isQuickSale))
         );
         if (!matchesTerm) return false;
       }
@@ -185,6 +191,7 @@ export default function MobileSalesPage() {
 
       // 4. Status Filter
       if (selectedStatus === 'active' && s.status === 'returned') return false;
+      if (selectedStatus === 'quick_sale' && !(s.itemType === 'quick_sale' || s.isQuickSale)) return false;
       if (selectedStatus === 'returned' && s.status !== 'returned') return false;
 
       // 5. Price Range
@@ -386,6 +393,13 @@ export default function MobileSalesPage() {
           <p className="text-sm text-slate-500 mt-1">Complete history with advance search, IMEI lookup & instant WhatsApp sharing</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => navigate('/quick-sale')}
+            className="flex items-center gap-1.5 border border-slate-200 bg-white text-slate-800 text-xs font-semibold py-2"
+          >
+            <span>Quick Sale</span>
+          </Button>
           {activeFiltersCount > 0 && (
             <button
               onClick={resetAllFilters}
@@ -719,17 +733,30 @@ export default function MobileSalesPage() {
 
                       {/* Brand & Model */}
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5 mb-1">
+                        <div className="flex items-center gap-1.5 mb-1 flex-wrap">
                           <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/10 text-amber-700 border border-amber-500/20">
                             {compName}
                           </span>
-                          {s.itemType === 'quick_sale' && (
-                            <Badge variant="warning" className="scale-75 origin-left">Quick</Badge>
+                          {(s.itemType === 'quick_sale' || s.isQuickSale) && (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/15 text-amber-800 border border-amber-500/30">
+                              Quick Sale
+                            </span>
+                          )}
+                          {s.ramRom && (
+                            <span className="text-[10px] text-slate-500 font-mono font-medium">
+                              ({s.ramRom})
+                            </span>
                           )}
                         </div>
-                        <div className="font-medium text-slate-900 text-sm">
+                        <div className="font-semibold text-slate-900 text-sm">
                           {s.itemName || s.name || s.modelName}
                         </div>
+                        {(s.supplierName || s.supplier) && (
+                          <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
+                            <span>Supplier:</span>
+                            <span className="font-semibold text-slate-700">{s.supplierName || s.supplier}</span>
+                          </div>
+                        )}
                       </td>
 
                       {/* IMEI 1 & 2 */}

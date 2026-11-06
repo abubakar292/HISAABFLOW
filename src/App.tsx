@@ -10,6 +10,7 @@ import DashboardPage from './pages/DashboardPage';
 import PurchaseMobilePage from './pages/PurchaseMobilePage';
 import MobilesStockPage from './pages/MobilesStockPage';
 import MobileSalesPage from './pages/MobileSalesPage';
+import QuickSalePage from './pages/QuickSalePage';
 import BillsHistoryPage from './pages/BillsHistoryPage';
 import ExpensesPage from './pages/ExpensesPage';
 import KhataPage from './pages/KhataPage';
@@ -112,6 +113,7 @@ export default function App() {
                   <Route path="/dashboard" element={<DashboardPage />} />
                   <Route path="/purchase-mobile" element={<PurchaseMobilePage />} />
                   <Route path="/mobiles-stock" element={<MobilesStockPage />} />
+                  <Route path="/quick-sale" element={<QuickSalePage />} />
                   <Route path="/mobile-sales" element={<MobileSalesPage />} />
                   <Route path="/bills-history" element={<BillsHistoryPage />} />
                   <Route path="/expenses" element={<ExpensesPage />} />

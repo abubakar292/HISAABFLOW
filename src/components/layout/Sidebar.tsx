@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, ShoppingCart, Smartphone, TrendingUp, Receipt, 
-  ReceiptText, BookOpen, Package, Settings, X, ShieldCheck 
+  ReceiptText, BookOpen, Package, Settings, X, ShieldCheck, Zap
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -31,6 +31,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     {
       title: 'Sales & Accounting',
       items: [
+        { path: '/quick-sale', icon: Zap, label: 'Quick Sale' },
         { path: '/mobile-sales', icon: TrendingUp, label: 'Sales Records' },
         { path: '/bills-history', icon: Receipt, label: 'Bills & Invoices' },
         { path: '/expenses', icon: ReceiptText, label: 'Shop Expenses' },
@@ -103,7 +104,12 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                   }`}
                 >
                   <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
-                  <span className="truncate">{item.label}</span>
+                  <span className="truncate flex-1">{item.label}</span>
+                  {(item as any).badge && (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-400 text-slate-900 shadow-xs">
+                      {(item as any).badge}
+                    </span>
+                  )}
                 </NavLink>
               );
             })}
