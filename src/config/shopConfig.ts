@@ -76,20 +76,22 @@ export const getWhatsAppSaleBillUrl = (
   imei1?: string,
   billNumber?: string
 ): string => {
-  if (!phone) return '#';
-  const cleanPhone = phone.replace(/[^0-9]/g, '');
+  const cleanPhone = (phone || '').replace(/[^0-9]/g, '');
   const formattedPhone = cleanPhone.startsWith('0') ? '92' + cleanPhone.slice(1) : cleanPhone;
 
-  let msg = `السلام علیکم ${customerName || 'صاحب'}،\n\nارشد موبائل زون (AMZ) سے خریداری کا شکریہ!\n\n📱 موبائل/آئٹم: *${itemName}*`;
+  let msg = `السلام علیکم ${customerName || 'صاحب'}،\n\nخریداری کا شکریہ!\n\n📱 موبائل/آئٹم: *${itemName}*`;
   if (imei1) {
     msg += `\n🔢 IMEI: ${imei1}`;
   }
-  msg += `\n💵 قیمت: *Rs. ${(sellPrice || 0).toLocaleString()}*`;
+  msg += `\n💵 قیمت: *Rs. ${(Number(sellPrice) || 0).toLocaleString()}*`;
   msg += `\n💳 طریقہ ادائیگی: *${paymentMethod || 'Cash'}*`;
   if (billNumber) {
     msg += `\n🧾 بل نمبر: *${billNumber}*`;
   }
-  msg += `\n\nکسی بھی معلومات یا سروس کے لیے رابطہ فرمائیں۔\n*ارشد موبائل زون (AMZ)*\nباڑہ بازار، خیبر`;
+  msg += `\n\nکسی بھی معلومات یا سروس کے لیے رابطہ فرمائیں۔`;
 
-  return `https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`;
+  if (formattedPhone) {
+    return `https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`;
+  }
+  return `https://wa.me/?text=${encodeURIComponent(msg)}`;
 };

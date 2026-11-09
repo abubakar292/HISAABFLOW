@@ -47,11 +47,14 @@ export function PrintPromptModal({ isOpen, onClose, billData, profit }: PrintPro
   const handleWhatsAppShare = () => {
     if (!billData) return;
     const phone = billData.customerPhone || billData.phone || '';
-    const name = billData.customerName || 'Customer';
-    const amount = billData.totalSellPrice || billData.sellPrice || 0;
-    const billNum = billData.billNumber || billData.id || '';
-    const item = (billData.items && billData.items[0]?.modelName) || billData.itemName || billData.modelName || 'Mobile';
-    const url = getWhatsAppSaleBillUrl(phone, name, amount, billNum, item);
+    const name = billData.customerName || 'Walk-in Customer';
+    const firstItem = billData.items && billData.items[0];
+    const item = firstItem?.modelName || firstItem?.itemName || billData.itemName || billData.modelName || 'Mobile Purchase';
+    const amount = billData.totalSellPrice || billData.totalSellAmount || billData.sellPrice || firstItem?.sellPrice || 0;
+    const method = billData.paymentMethod || 'Cash';
+    const imei = firstItem?.imei1 || billData.imei1 || '';
+    const billNum = billData.billNumber || (billData.id ? String(billData.id).substring(0, 8).toUpperCase() : '');
+    const url = getWhatsAppSaleBillUrl(phone, name, item, Number(amount) || 0, method, imei, billNum);
     window.open(url, '_blank');
   };
 
@@ -94,16 +97,14 @@ export function PrintPromptModal({ isOpen, onClose, billData, profit }: PrintPro
               Preview & System Print
             </Button>
             
-            {billData?.customerPhone && (
-              <Button
-                variant="secondary"
-                className="w-full flex items-center justify-center gap-2 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200"
-                onClick={handleWhatsAppShare}
-              >
-                <Share2 className="w-4 h-4" />
-                Share on WhatsApp
-              </Button>
-            )}
+            <Button
+              variant="secondary"
+              className="w-full flex items-center justify-center gap-2 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200 cursor-pointer"
+              onClick={handleWhatsAppShare}
+            >
+              <Share2 className="w-4 h-4" />
+              Share Receipt
+            </Button>
 
             <Button variant="ghost" className="w-full text-slate-500" onClick={onClose}>
               Done / Close
@@ -120,7 +121,7 @@ export function PrintPromptModal({ isOpen, onClose, billData, profit }: PrintPro
         title="Sale Receipt"
         billNumber={billData?.billNumber || billData?.id}
         billData={billData}
-        onShareWhatsApp={billData?.customerPhone ? handleWhatsAppShare : undefined}
+        onShareWhatsApp={handleWhatsAppShare}
       />
 
       {/* DIRECT BLUETOOTH THERMAL PRINTER MODAL */}

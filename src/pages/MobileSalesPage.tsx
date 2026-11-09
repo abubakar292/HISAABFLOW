@@ -912,7 +912,7 @@ export default function MobileSalesPage() {
         title="Sale Receipt Preview"
         billNumber={previewSaleBill?.billNumber || previewSaleBill?.id}
         billData={previewSaleBill}
-        onShareWhatsApp={(previewSaleBill?.customerPhone || previewSaleBill?.phone) ? handleWhatsAppForSalePreview : undefined}
+        onShareWhatsApp={handleWhatsAppForSalePreview}
       />
 
       {/* DIRECT BLUETOOTH THERMAL PRINTER MODAL */}

@@ -1,4 +1,3 @@
-import { format } from 'date-fns';
 import { formatDateSafe } from './dateUtils';
 import { printInNewWindow } from './printUtils';
 import { SHOP_CONFIG } from '../config/shopConfig';
@@ -22,35 +21,73 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
   const currentReceiptNote = shopInfo?.receiptNote || 'Warranty claim requires original bill slip. Thank you for your business!';
   const logoUrl = shopInfo?.logoUrl;
 
+  const hasAnyImei = isMultiple
+    ? billData.items.some((item: any) => Boolean(item.imei1 || item.imei2))
+    : Boolean(billData.imei1 || billData.imei2);
+
   const itemsHtml = isMultiple 
-    ? billData.items.map((item: any, i: number) => `
-      <tr style="border-bottom: 1px solid #f1f5f9;">
-        <td style="padding: 8px 6px; text-align: center; color: #94a3b8; font-size: 11px;">${i + 1}</td>
-        <td style="padding: 8px 6px;">
-          <div style="font-weight: 700; color: #0f172a; font-size: 13px;">${item.company || ''} ${item.modelName || item.itemName || ''}</div>
-          ${item.ramRom ? `<div style="font-size: 10.5px; color: #64748b;">Specs: ${item.ramRom}</div>` : ''}
+    ? billData.items.map((item: any, i: number) => {
+        const rawModel = item.modelName || item.itemName || '';
+        const comp = item.company || '';
+        const displayTitle = rawModel.toLowerCase().startsWith(comp.toLowerCase())
+          ? rawModel
+          : `${comp} ${rawModel}`.trim();
+        return `
+      <tr class="item-row">
+        <td class="col-index">${i + 1}</td>
+        <td class="col-item">
+          <div class="item-title">${displayTitle}</div>
+          <div class="item-sub">
+            ${item.ramRom ? `<span>Specs: ${item.ramRom}</span>` : ''}
+            ${item.condition ? `<span>${item.ramRom ? ' • ' : ''}${item.condition}</span>` : ''}
+          </div>
+          ${hasAnyImei && (item.imei1 || item.imei2) ? `
+            <div class="mobile-imei-inline">
+              IMEI: ${item.imei1 || ''}${item.imei2 ? ` / ${item.imei2}` : ''}
+            </div>
+          ` : ''}
         </td>
-        <td style="padding: 8px 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11.5px; color: #334155;">
+        ${hasAnyImei ? `
+        <td class="col-imei">
           ${item.imei1 || (item.imei2 ? '' : '-')}
-          ${item.imei2 ? `<div style="font-size: 10px; color: #64748b;">IMEI 2: ${item.imei2}</div>` : ''}
+          ${item.imei2 ? `<div class="imei-secondary">IMEI 2: ${item.imei2}</div>` : ''}
         </td>
-        <td style="padding: 8px 6px; text-align: right; font-weight: 800; color: #0f172a; font-size: 13px;">Rs. ${(item.sellPrice || 0).toLocaleString()}</td>
-      </tr>
-    `).join('')
-    : `
-      <tr style="border-bottom: 1px solid #f1f5f9;">
-        <td style="padding: 8px 6px; text-align: center; color: #94a3b8; font-size: 11px;">1</td>
-        <td style="padding: 8px 6px;">
-          <div style="font-weight: 700; color: #0f172a; font-size: 13px;">${billData.company || ''} ${billData.itemName || billData.modelName || ''}</div>
-          ${billData.ramRom ? `<div style="font-size: 10.5px; color: #64748b;">Specs: ${billData.ramRom}</div>` : ''}
-        </td>
-        <td style="padding: 8px 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11.5px; color: #334155;">
-          ${billData.imei1 || (billData.imei2 ? '' : '-')}
-          ${billData.imei2 ? `<div style="font-size: 10px; color: #64748b;">IMEI 2: ${billData.imei2}</div>` : ''}
-        </td>
-        <td style="padding: 8px 6px; text-align: right; font-weight: 800; color: #0f172a; font-size: 13px;">Rs. ${(billData.sellPrice || billData.totalSellPrice || 0).toLocaleString()}</td>
+        ` : ''}
+        <td class="col-amount">Rs. ${(Number(item.sellPrice) || 0).toLocaleString()}</td>
       </tr>
     `;
+      }).join('')
+    : (() => {
+        const rawModel = billData.itemName || billData.modelName || '';
+        const comp = billData.company || '';
+        const displayTitle = rawModel.toLowerCase().startsWith(comp.toLowerCase())
+          ? rawModel
+          : `${comp} ${rawModel}`.trim();
+        return `
+      <tr class="item-row">
+        <td class="col-index">1</td>
+        <td class="col-item">
+          <div class="item-title">${displayTitle}</div>
+          <div class="item-sub">
+            ${billData.ramRom ? `<span>Specs: ${billData.ramRom}</span>` : ''}
+            ${billData.condition ? `<span>${billData.ramRom ? ' • ' : ''}${billData.condition}</span>` : ''}
+          </div>
+          ${hasAnyImei && (billData.imei1 || billData.imei2) ? `
+            <div class="mobile-imei-inline">
+              IMEI: ${billData.imei1 || ''}${billData.imei2 ? ` / ${billData.imei2}` : ''}
+            </div>
+          ` : ''}
+        </td>
+        ${hasAnyImei ? `
+        <td class="col-imei">
+          ${billData.imei1 || (billData.imei2 ? '' : '-')}
+          ${billData.imei2 ? `<div class="imei-secondary">IMEI 2: ${billData.imei2}</div>` : ''}
+        </td>
+        ` : ''}
+        <td class="col-amount">Rs. ${(Number(billData.sellPrice || billData.totalSellPrice) || 0).toLocaleString()}</td>
+      </tr>
+    `;
+      })();
 
   let calculatedTotal = 0;
   if (billData.totalSellPrice !== undefined && billData.totalSellPrice !== null && Number(billData.totalSellPrice) > 0) {
@@ -82,7 +119,7 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
           color: #0f172a;
           background: #ffffff;
-          padding: 12px;
+          padding: 10px;
           -webkit-print-color-adjust: exact;
           print-color-adjust: exact;
         }
@@ -94,7 +131,6 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
           border-radius: 12px;
           border: 1px solid #e2e8f0;
           overflow: hidden;
-          box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
         }
         .header {
           background: #522D60;
@@ -103,29 +139,35 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 12px;
+          gap: 10px;
           flex-wrap: wrap;
         }
         .header-brand {
           display: flex;
           align-items: center;
           gap: 10px;
+          min-width: 0;
+          flex: 1;
         }
         .header-logo {
-          max-width: 50px;
-          max-height: 40px;
+          width: 40px;
+          height: 40px;
           object-fit: contain;
-          border-radius: 6px;
+          border-radius: 8px;
           background: #ffffff;
           padding: 2px;
+          flex-shrink: 0;
+        }
+        .header-info {
+          min-width: 0;
         }
         .header-info h1 {
-          font-size: 17px;
+          font-size: 16px;
           font-weight: 800;
           letter-spacing: -0.2px;
           margin: 0;
           color: #ffffff;
-          line-height: 1.2;
+          line-height: 1.25;
         }
         .header-info p {
           font-size: 11px;
@@ -135,6 +177,7 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
         }
         .header-badge {
           text-align: right;
+          flex-shrink: 0;
         }
         .invoice-pill {
           display: inline-block;
@@ -144,7 +187,7 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
           font-size: 10.5px;
           padding: 3px 10px;
           border-radius: 20px;
-          letter-spacing: 0.5px;
+          letter-spacing: 0.4px;
         }
         .invoice-date {
           font-size: 10px;
@@ -156,42 +199,92 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
           border-bottom: 1px solid #e2e8f0;
           padding: 10px 18px;
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          grid-template-columns: 1fr 1fr;
           gap: 10px;
           font-size: 11.5px;
         }
         .meta-strip p {
           margin: 2px 0;
           color: #475569;
+          word-break: break-word;
         }
         .meta-strip strong {
           color: #0f172a;
           font-weight: 700;
         }
+        .meta-right {
+          text-align: right;
+        }
         .table-wrap {
-          padding: 10px 18px;
-          overflow-x: auto;
-          -webkit-overflow-scrolling: touch;
+          padding: 10px 16px;
+          width: 100%;
         }
         .items-table {
           width: 100%;
-          min-width: 380px;
           border-collapse: collapse;
           font-size: 12px;
         }
         .items-table th {
           background: #f1f5f9;
-          padding: 7px 8px;
+          padding: 8px 8px;
           text-align: left;
           font-size: 10.5px;
           font-weight: 700;
           color: #475569;
           text-transform: uppercase;
-          letter-spacing: 0.5px;
-          border-radius: 4px;
+          letter-spacing: 0.4px;
+        }
+        .item-row {
+          border-bottom: 1px solid #f1f5f9;
+        }
+        .col-index {
+          padding: 9px 6px;
+          text-align: center;
+          color: #94a3b8;
+          font-size: 11px;
+          width: 28px;
+        }
+        .col-item {
+          padding: 9px 6px;
+        }
+        .item-title {
+          font-weight: 700;
+          color: #0f172a;
+          font-size: 13px;
+          line-height: 1.3;
+        }
+        .item-sub {
+          font-size: 10.5px;
+          color: #64748b;
+          margin-top: 2px;
+        }
+        .mobile-imei-inline {
+          display: none;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          font-size: 10px;
+          color: #475569;
+          margin-top: 3px;
+        }
+        .col-imei {
+          padding: 9px 6px;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          font-size: 11.5px;
+          color: #334155;
+        }
+        .imei-secondary {
+          font-size: 10px;
+          color: #64748b;
+        }
+        .col-amount {
+          padding: 9px 6px;
+          text-align: right;
+          font-weight: 800;
+          color: #0f172a;
+          font-size: 13px;
+          white-space: nowrap;
         }
         .summary-card {
-          margin: 0 20px 14px 20px;
+          margin: 4px 16px 14px 16px;
           background: #f8fafc;
           border: 1px solid #e2e8f0;
           border-radius: 10px;
@@ -199,22 +292,24 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
           display: flex;
           align-items: center;
           justify-content: space-between;
+          gap: 8px;
         }
         .summary-title {
-          font-size: 11.5px;
+          font-size: 11px;
           font-weight: 700;
           color: #64748b;
           text-transform: uppercase;
           letter-spacing: 0.5px;
         }
         .summary-total {
-          font-size: 20px;
+          font-size: 19px;
           font-weight: 900;
           color: #522D60;
-          letter-spacing: -0.5px;
+          letter-spacing: -0.4px;
+          white-space: nowrap;
         }
         .footer {
-          padding: 12px 20px 16px 20px;
+          padding: 12px 16px 16px 16px;
           border-top: 1px dashed #e2e8f0;
           text-align: center;
           color: #64748b;
@@ -224,6 +319,74 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
         .footer strong {
           color: #334155;
         }
+
+        /* Mobile Preview Refinements */
+        @media (max-width: 480px) {
+          body {
+            padding: 4px;
+          }
+          .header {
+            padding: 12px;
+          }
+          .header-logo {
+            width: 34px;
+            height: 34px;
+          }
+          .header-info h1 {
+            font-size: 14px;
+          }
+          .header-info p {
+            font-size: 10px;
+          }
+          .header-badge {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            padding-top: 8px;
+            margin-top: 4px;
+            text-align: left;
+          }
+          .invoice-date {
+            margin-top: 0;
+          }
+          .meta-strip {
+            padding: 8px 12px;
+            font-size: 10.5px;
+            gap: 6px;
+          }
+          .table-wrap {
+            padding: 6px 10px;
+          }
+          .col-imei, .th-imei {
+            display: none;
+          }
+          .mobile-imei-inline {
+            display: block;
+          }
+          .item-title {
+            font-size: 12px;
+          }
+          .col-amount {
+            font-size: 12px;
+          }
+          .summary-card {
+            margin: 4px 10px 10px 10px;
+            padding: 10px 12px;
+          }
+          .summary-title {
+            font-size: 10px;
+          }
+          .summary-total {
+            font-size: 16px;
+          }
+          .footer {
+            padding: 10px 12px 12px 12px;
+            font-size: 9.5px;
+          }
+        }
+
         @media print {
           @page { margin: 6mm; size: auto; }
           body { padding: 0 !important; background: #fff !important; }
@@ -232,6 +395,12 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
             box-shadow: none !important;
             max-width: 100% !important;
             border-radius: 0 !important;
+          }
+          .col-imei, .th-imei {
+            display: table-cell !important;
+          }
+          .mobile-imei-inline {
+            display: none !important;
           }
         }
       </style>
@@ -259,9 +428,9 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
             <p><strong>Customer:</strong> ${billData.customerName || 'Walk-in Customer'}</p>
             <p><strong>Contact:</strong> ${billData.customerPhone || 'N/A'}</p>
           </div>
-          <div style="text-align: right;">
+          <div class="meta-right">
             <p><strong>Payment:</strong> ${billData.paymentMethod || 'Cash'}</p>
-            <p><strong>Cashier / Store:</strong> ${currentShopName}</p>
+            <p><strong>Store:</strong> ${currentShopName}</p>
           </div>
         </div>
 
@@ -270,10 +439,10 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
           <table class="items-table">
             <thead>
               <tr>
-                <th style="width: 32px; text-align: center;">#</th>
+                <th style="width: 28px; text-align: center;">#</th>
                 <th>Item / Model</th>
-                <th>IMEI Number</th>
-                <th style="text-align: right; width: 110px;">Amount</th>
+                ${hasAnyImei ? `<th class="th-imei">IMEI Number</th>` : ''}
+                <th style="text-align: right; width: 100px;">Amount</th>
               </tr>
             </thead>
             <tbody>
