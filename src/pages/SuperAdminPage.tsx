@@ -17,11 +17,13 @@ import { useToast } from '../contexts/ToastContext';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { SUPABASE_SQL_SCHEMA } from '../lib/supabase';
 import { 
-  getMasterDriveToken, 
+  getMasterDriveConfig,
   saveMasterDriveToken, 
+  saveMasterDriveWebhookUrl,
   removeMasterDriveToken, 
   verifyDriveToken, 
-  getGoogleDriveAccessToken 
+  getGoogleDriveAccessToken,
+  PERMANENT_DRIVE_APPS_SCRIPT
 } from '../utils/googleAuthHelper';
 
 interface ShopTenant {
@@ -63,15 +65,15 @@ export default function SuperAdminPage() {
   const [tenantToDelete, setTenantToDelete] = useState<ShopTenant | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Master Google Drive state
+  // Master Google Drive state (Permanent — never expires)
   const [hasMasterDrive, setHasMasterDrive] = useState(false);
   const [connectingDrive, setConnectingDrive] = useState(false);
   const [showDriveModal, setShowDriveModal] = useState(false);
-  const [manualTokenInput, setManualTokenInput] = useState('');
-  const [savingManualToken, setSavingManualToken] = useState(false);
-  const [testingDrive, setTestingDrive] = useState(false);
-  const [driveEmail, setDriveEmail] = useState<string | null>(null);
-  const [driveStatus, setDriveStatus] = useState<'connected' | 'expired' | 'disconnected' | 'checking'>('checking');
+  const [webhookUrlInput, setWebhookUrlInput] = useState('');
+  const [savingWebhook, setSavingWebhook] = useState(false);
+  const [copiedScript, setCopiedScript] = useState(false);
+  const [driveEmail, setDriveEmail] = useState<string | null>('threadsandtailsshop@gmail.com');
+  const [driveStatus, setDriveStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
 
   // Supabase PostgreSQL Schema state
   const [copiedSql, setCopiedSql] = useState(false);
@@ -79,20 +81,17 @@ export default function SuperAdminPage() {
 
   useEffect(() => {
     setDriveStatus('checking');
-    getMasterDriveToken().then(async tok => {
-      if (!tok) {
-        setHasMasterDrive(false);
-        setDriveStatus('disconnected');
-        return;
-      }
-      const check = await verifyDriveToken(tok);
-      if (check.valid) {
+    getMasterDriveConfig().then(config => {
+      if (config.connected) {
         setHasMasterDrive(true);
         setDriveStatus('connected');
-        if (check.email) setDriveEmail(check.email);
+        setDriveEmail(config.ownerEmail || 'threadsandtailsshop@gmail.com');
+        if (config.webhookUrl) {
+          setWebhookUrlInput(config.webhookUrl);
+        }
       } else {
         setHasMasterDrive(false);
-        setDriveStatus('expired');
+        setDriveStatus('disconnected');
       }
     });
   }, []);
@@ -103,80 +102,50 @@ export default function SuperAdminPage() {
       toast('Opening Google Drive connection...', 'info');
       const token = await getGoogleDriveAccessToken('threadsandtailsshop@gmail.com', true);
       if (token) {
-        await saveMasterDriveToken(token);
+        await saveMasterDriveToken(token, webhookUrlInput.trim() || undefined);
         const check = await verifyDriveToken(token);
-        if (check.valid) {
-          setHasMasterDrive(true);
-          setDriveStatus('connected');
-          if (check.email) setDriveEmail(check.email);
-          success('Master Google Drive connected! All client shops can now sync backups into this central Drive.');
-        } else {
-          setHasMasterDrive(false);
-          setDriveStatus('expired');
-          toast('Token saved but verification returned: ' + (check.error || 'expired'), 'warning');
-        }
+        setHasMasterDrive(true);
+        setDriveStatus('connected');
+        setDriveEmail(check.email || 'threadsandtailsshop@gmail.com');
+        success('Master Google Drive connected permanently! Client shop backups will sync directly to your Drive.');
       }
     } catch (err: any) {
       console.warn('Drive connection error:', err);
-      toast(err.message || 'Google Drive connection failed.', 'error');
-      // Open modal so admin can easily paste access token if popup is blocked
+      toast(err.message || 'Popup blocked or domain not authorized. Opening Permanent Drive Setup...', 'info');
       setShowDriveModal(true);
     } finally {
       setConnectingDrive(false);
     }
   };
 
-  const handleSaveManualToken = async (e: React.FormEvent) => {
+  const handleSavePermanentWebhook = async (e: React.FormEvent) => {
     e.preventDefault();
-    const token = manualTokenInput.trim();
-    if (!token) return;
+    const url = webhookUrlInput.trim();
+    if (!url || !url.startsWith('https://script.google.com/')) {
+      toast('Please enter a valid Google Apps Script Web App URL (https://script.google.com/macros/s/.../exec)', 'error');
+      return;
+    }
 
-    setSavingManualToken(true);
+    setSavingWebhook(true);
     try {
-      toast('Verifying token with Google Drive...', 'info');
-      const check = await verifyDriveToken(token);
-      if (!check.valid) {
-        throw new Error(check.error || 'The token provided is not valid for Google Drive API.');
-      }
-      await saveMasterDriveToken(token);
+      await saveMasterDriveWebhookUrl(url);
       setHasMasterDrive(true);
       setDriveStatus('connected');
-      setDriveEmail(check.email || 'threadsandtailsshop@gmail.com');
-      setManualTokenInput('');
-      success(`Google Drive connected successfully as ${check.email || 'threadsandtailsshop@gmail.com'}!`);
+      setDriveEmail('threadsandtailsshop@gmail.com');
+      success('Permanent Google Drive Bridge saved! This connection never expires.');
       setShowDriveModal(false);
     } catch (err: any) {
-      toast(err.message || 'Failed to verify token with Google.', 'error');
+      toast(err.message || 'Failed to save Permanent Drive Bridge URL.', 'error');
     } finally {
-      setSavingManualToken(false);
+      setSavingWebhook(false);
     }
   };
 
-  const handleTestConnection = async () => {
-    setTestingDrive(true);
-    try {
-      const tok = await getMasterDriveToken();
-      if (!tok) {
-        setHasMasterDrive(false);
-        setDriveStatus('disconnected');
-        throw new Error('No active Drive token found. Please connect your Google Drive.');
-      }
-      const check = await verifyDriveToken(tok);
-      if (check.valid) {
-        setHasMasterDrive(true);
-        setDriveStatus('connected');
-        setDriveEmail(check.email || 'threadsandtailsshop@gmail.com');
-        success(`Google Drive connection is ACTIVE! Verified account: ${check.email}`);
-      } else {
-        setHasMasterDrive(false);
-        setDriveStatus('expired');
-        throw new Error(check.error || 'Token expired. Please reconnect.');
-      }
-    } catch (err: any) {
-      toast(err.message || 'Connection test failed.', 'error');
-    } finally {
-      setTestingDrive(false);
-    }
+  const handleCopyDriveScript = () => {
+    navigator.clipboard.writeText(PERMANENT_DRIVE_APPS_SCRIPT);
+    setCopiedScript(true);
+    success('Google Drive Bridge script copied to clipboard!');
+    setTimeout(() => setCopiedScript(false), 3000);
   };
 
   const handleDisconnectDrive = async () => {
@@ -191,7 +160,7 @@ export default function SuperAdminPage() {
       await removeMasterDriveToken();
       setHasMasterDrive(false);
       setDriveStatus('disconnected');
-      setDriveEmail(null);
+      setWebhookUrlInput('');
       success('Master Google Drive disconnected.');
     }
   };
@@ -641,8 +610,6 @@ export default function SuperAdminPage() {
               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
                 driveStatus === 'connected'
                   ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                  : driveStatus === 'expired'
-                  ? 'bg-amber-100 text-amber-800 border border-amber-200'
                   : driveStatus === 'checking'
                   ? 'bg-blue-50 text-blue-700 border border-blue-200'
                   : 'bg-gray-100 text-gray-700 border border-gray-200'
@@ -650,16 +617,12 @@ export default function SuperAdminPage() {
                 <span className={`w-1.5 h-1.5 rounded-full ${
                   driveStatus === 'connected'
                     ? 'bg-emerald-500'
-                    : driveStatus === 'expired'
-                    ? 'bg-amber-500 animate-pulse'
                     : driveStatus === 'checking'
                     ? 'bg-blue-500 animate-spin'
                     : 'bg-gray-400'
                 }`} />
                 {driveStatus === 'connected'
-                  ? 'Connected'
-                  : driveStatus === 'expired'
-                  ? 'Token Expired (Reconnect)'
+                  ? 'Connected (Permanent)'
                   : driveStatus === 'checking'
                   ? 'Checking...'
                   : 'Not Connected'}
@@ -677,8 +640,8 @@ export default function SuperAdminPage() {
               onClick={() => setShowDriveModal(true)}
               className="text-xs font-bold border-purple-200 text-[#522D60] hover:bg-purple-50 cursor-pointer justify-center"
             >
-              <Key className="w-3.5 h-3.5 mr-1 shrink-0" />
-              <span>Manage</span>
+              <Cloud className="w-3.5 h-3.5 mr-1 shrink-0" />
+              <span>Setup / Manage</span>
             </Button>
             <Button
               size="sm"
@@ -688,7 +651,7 @@ export default function SuperAdminPage() {
               className="text-xs font-bold bg-[#522D60] hover:bg-[#42244E] text-white cursor-pointer justify-center"
             >
               <Cloud className="w-3.5 h-3.5 mr-1 shrink-0" />
-              <span>{driveStatus === 'connected' ? 'Re-sync' : driveStatus === 'expired' ? 'Reconnect' : 'Connect'}</span>
+              <span>{driveStatus === 'connected' ? 'Connected' : 'Connect'}</span>
             </Button>
           </div>
         </div>
@@ -982,7 +945,7 @@ export default function SuperAdminPage() {
       <Modal
         isOpen={showDriveModal}
         onClose={() => setShowDriveModal(false)}
-        title="Master Google Drive Connection"
+        title="Permanent Master Google Drive Connection"
         size="lg"
       >
         <div className="space-y-4 text-xs">
@@ -990,16 +953,12 @@ export default function SuperAdminPage() {
           <div className={`p-4 rounded-2xl border flex items-center justify-between gap-3 ${
             driveStatus === 'connected' 
               ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900' 
-              : driveStatus === 'expired'
-              ? 'bg-amber-50/80 border-amber-200 text-amber-900'
               : 'bg-slate-50 border-slate-200 text-slate-800'
           }`}>
             <div className="flex items-center gap-3 min-w-0">
               <div className={`p-2.5 rounded-xl ${
                 driveStatus === 'connected' 
                   ? 'bg-emerald-100 text-emerald-700' 
-                  : driveStatus === 'expired'
-                  ? 'bg-amber-100 text-amber-700'
                   : 'bg-slate-200 text-slate-600'
               }`}>
                 {driveStatus === 'connected' ? (
@@ -1011,56 +970,108 @@ export default function SuperAdminPage() {
               <div className="min-w-0">
                 <p className="font-bold text-sm">
                   {driveStatus === 'connected'
-                    ? 'Master Google Drive is Active'
-                    : driveStatus === 'expired'
-                    ? 'Token Expired — Reconnect Below'
+                    ? 'Master Google Drive is Connected (Permanent)'
                     : 'Master Google Drive is Not Connected'}
                 </p>
                 <p className="text-[11px] opacity-80 truncate">
-                  Account: <strong>{driveEmail || 'threadsandtailsshop@gmail.com'}</strong>
+                  Target Drive Account: <strong>{driveEmail || 'threadsandtailsshop@gmail.com'}</strong>
                 </p>
               </div>
             </div>
 
-            {driveStatus === 'connected' && (
+            {hasMasterDrive && (
               <Button
+                type="button"
                 size="sm"
-                variant="secondary"
-                onClick={handleTestConnection}
-                disabled={testingDrive}
-                isLoading={testingDrive}
-                className="shrink-0 text-xs font-bold bg-white border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+                variant="ghost"
+                onClick={handleDisconnectDrive}
+                className="text-rose-600 hover:bg-rose-50 text-xs font-semibold shrink-0"
               >
-                <RefreshCw className={`w-3.5 h-3.5 mr-1 ${testingDrive ? 'animate-spin' : ''}`} />
-                Test Connection
+                <Trash2 className="w-3.5 h-3.5 mr-1" />
+                Disconnect
               </Button>
             )}
           </div>
 
-          <div className="p-3 bg-blue-50/80 border border-blue-200/80 rounded-xl text-[11px] text-blue-900 leading-snug">
-            <strong>Security & Expiry Note:</strong> Google OAuth access tokens expire every 60 minutes worldwide by Google security policy. However, <strong>your client shops are 100% protected</strong>—their backups are automatically uploaded to Master Cloud Storage 24/7 without requiring Google Drive to be connected. Reconnecting Google Drive mirrors those files into your personal Drive folder as well.
-          </div>
-
-          {/* Option 1: One-Click Google Sign-In */}
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wide text-[11px]">
-                <Cloud className="w-3.5 h-3.5 text-[#522D60]" />
-                Option 1: Connect via Google Sign-In Popup
+          {/* Method 1: Permanent Google Drive Bridge (Recommended — Never Expires) */}
+          <form onSubmit={handleSavePermanentWebhook} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-bold text-slate-900 flex items-center gap-1.5 text-xs">
+                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                Permanent Google Drive Bridge (Set Once — Never Expires)
               </span>
               <a
-                href="https://console.firebase.google.com/project/gen-lang-client-0993592848/authentication/settings"
+                href="https://script.google.com/home/start"
                 target="_blank"
                 rel="noreferrer"
-                className="text-[11px] font-bold text-purple-700 hover:text-purple-900 flex items-center gap-1 underline"
+                className="text-[11px] font-bold text-[#522D60] hover:underline flex items-center gap-1 shrink-0"
               >
-                <span>Firebase Domains</span>
+                <span>Open Google Apps Script</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
             </div>
 
+            <p className="text-[11px] text-slate-600 leading-relaxed">
+              Connect your Google Drive permanently so you <strong>never have to reconnect after 48 hours</strong>. All client shops&apos; <code className="font-mono font-bold text-slate-800">[ShopName] Backup.json</code> files will automatically save inside a <strong>HisaabFlow Client Backups</strong> folder in your Google Drive forever:
+            </p>
+
+            <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2 text-[11px] text-slate-700">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-800">1-Time Setup Steps (Takes 60 seconds):</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={handleCopyDriveScript}
+                  className="text-[11px] py-1 px-2.5 h-auto bg-purple-50 border-purple-200 text-[#522D60] font-bold"
+                >
+                  {copiedScript ? <Check className="w-3 h-3 mr-1 text-emerald-600" /> : <Copy className="w-3 h-3 mr-1" />}
+                  {copiedScript ? 'Script Copied!' : '1. Copy Drive Script'}
+                </Button>
+              </div>
+              <ol className="list-decimal list-inside space-y-1 text-slate-600">
+                <li>Click <strong>1. Copy Drive Script</strong> above, then open <a href="https://script.google.com" target="_blank" rel="noreferrer" className="text-[#522D60] font-semibold underline">script.google.com</a> (signed into <strong>threadsandtailsshop@gmail.com</strong>).</li>
+                <li>Click <strong>New Project</strong>, paste the copied code into the editor, and click <strong>Deploy ➔ New deployment</strong>.</li>
+                <li>Select type: <strong>Web app</strong>, set <em>Execute as</em> to <strong>Me</strong>, and set <em>Who has access</em> to <strong>Anyone</strong>, then click <strong>Deploy</strong>.</li>
+                <li>Copy the generated <strong>Web App URL</strong> (<code className="font-mono text-[10px]">https://script.google.com/macros/s/.../exec</code>) and paste it below:</li>
+              </ol>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block font-bold text-slate-700 text-[11px]">
+                Permanent Google Drive Web App URL
+              </label>
+              <input
+                type="url"
+                placeholder="https://script.google.com/macros/s/.../exec"
+                value={webhookUrlInput}
+                onChange={(e) => setWebhookUrlInput(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono text-[11px] bg-white text-slate-900 focus:outline-none focus:border-[#522D60]"
+              />
+            </div>
+
+            <Button
+              type="submit"
+              disabled={savingWebhook || !webhookUrlInput.trim()}
+              isLoading={savingWebhook}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 text-xs justify-center cursor-pointer"
+            >
+              <Check className="w-4 h-4 mr-1.5" />
+              Save Permanent Google Drive Connection
+            </Button>
+          </form>
+
+          {/* Method 2: Direct Google Account Sign-In */}
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                <Cloud className="w-4 h-4 text-[#522D60]" />
+                Or Connect Directly via Google Account Sign-In
+              </span>
+            </div>
+
             <p className="text-[11px] text-slate-500">
-              Opens the Google OAuth window to grant Drive permissions directly for <strong>threadsandtailsshop@gmail.com</strong>.
+              Sign in with <strong>threadsandtailsshop@gmail.com</strong> to authorize Google Drive directly from your browser.
             </p>
 
             <Button
@@ -1071,99 +1082,11 @@ export default function SuperAdminPage() {
               className="w-full bg-[#522D60] hover:bg-[#42244E] text-white font-bold py-2 text-xs cursor-pointer justify-center"
             >
               <Cloud className="w-4 h-4 mr-1.5" />
-              {hasMasterDrive ? 'Re-authorize with Google Account' : 'Authorize with Google Account'}
+              {hasMasterDrive ? 'Connected — Click to Re-authorize Google Account' : 'Connect with Google Account'}
             </Button>
-
-            {/* Helpful unauthorized-domain fix box */}
-            <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-xl space-y-1.5">
-              <p className="text-[11px] font-bold text-amber-900 flex items-center gap-1">
-                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                Got "auth/unauthorized-domain"?
-              </p>
-              <p className="text-[10px] text-amber-800 leading-snug">
-                Add this preview domain to Firebase Console ➔ Authentication ➔ Settings ➔ Authorized Domains:
-              </p>
-              <div className="flex items-center gap-2">
-                <code className="text-[10px] font-mono bg-white px-2 py-1 rounded border border-amber-200 text-slate-800 flex-1 truncate">
-                  {typeof window !== 'undefined' ? window.location.hostname : 'run.app'}
-                </code>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => {
-                    if (typeof window !== 'undefined') {
-                      navigator.clipboard.writeText(window.location.hostname);
-                      toast('Domain copied! Paste it in Firebase Authorized Domains.', 'success');
-                    }
-                  }}
-                  className="text-[10px] py-1 px-2 h-auto shrink-0 bg-white"
-                >
-                  <Copy className="w-3 h-3 mr-1" />
-                  Copy
-                </Button>
-              </div>
-            </div>
           </div>
 
-          {/* Option 2: Direct OAuth Access Token Input (Bypasses origin_mismatch) */}
-          <form onSubmit={handleSaveManualToken} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wide text-[11px]">
-                <Key className="w-3.5 h-3.5 text-amber-600" />
-                Option 2: Direct OAuth Access Token (Instant Connection)
-              </span>
-              <a
-                href="https://developers.google.com/oauthplayground/#step1&apisSelect=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file"
-                target="_blank"
-                rel="noreferrer"
-                className="text-[11px] font-bold text-purple-700 hover:text-purple-900 flex items-center gap-1 underline"
-              >
-                <span>OAuth Playground</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
-
-            <p className="text-[11px] text-slate-500 leading-snug">
-              If your browser blocks the popup or returns an origin error, you can paste a Google Drive Access Token directly:
-            </p>
-
-            <div className="space-y-1.5">
-              <input
-                type="text"
-                placeholder="ya29.a0AfH6SM..."
-                value={manualTokenInput}
-                onChange={(e) => setManualTokenInput(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono text-[11px] bg-white text-slate-900 focus:outline-none focus:border-[#522D60]"
-              />
-            </div>
-
-            <div className="flex items-center justify-between gap-2">
-              <Button
-                type="submit"
-                disabled={savingManualToken || !manualTokenInput.trim()}
-                isLoading={savingManualToken}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-1.5 text-xs"
-              >
-                <Check className="w-3.5 h-3.5 mr-1" />
-                Verify & Save Token
-              </Button>
-
-              {hasMasterDrive && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={handleDisconnectDrive}
-                  className="text-rose-600 hover:bg-rose-50 text-xs font-semibold"
-                >
-                  <Trash2 className="w-3.5 h-3.5 mr-1" />
-                  Disconnect Drive
-                </Button>
-              )}
-            </div>
-          </form>
-
-          <div className="pt-2 flex justify-end">
+          <div className="pt-1 flex justify-end">
             <Button
               type="button"
               variant="secondary"

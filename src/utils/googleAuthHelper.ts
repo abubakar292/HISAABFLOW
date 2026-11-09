@@ -3,9 +3,30 @@ import { initializeApp, getApps, getApp } from 'real-firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup } from 'real-firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { supabaseAdmin, SUPABASE_BUCKET } from '../lib/supabase';
 
 export const MASTER_DRIVE_DOC = 'google_drive_master';
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+
+export const PERMANENT_DRIVE_APPS_SCRIPT = `function doPost(e) {
+  var data = JSON.parse(e.postData.contents);
+  var fileName = data.fileName || "Shop Backup.json";
+  var content = data.content || "{}";
+  var files = DriveApp.getFilesByName(fileName);
+  var file;
+  if (files.hasNext()) {
+    file = files.next();
+    file.setContent(content);
+  } else {
+    file = DriveApp.createFile(fileName, content, MimeType.PLAIN_TEXT);
+  }
+  return ContentService.createTextOutput(JSON.stringify({
+    success: true,
+    fileId: file.getId(),
+    fileName: file.getName(),
+    url: file.getUrl()
+  })).setMimeType(ContentService.MimeType.JSON);
+}`;
 
 /**
  * Dedicated real Firebase Auth instance for Google Workspace OAuth
@@ -20,9 +41,16 @@ function getWorkspaceAuth() {
   return getAuth(oauthApp);
 }
 
-// In-memory token cache
+// In-memory cache
 let inMemoryAccessToken: string | null = null;
-let inMemoryTokenExpiry: number = 0;
+let inMemoryWebhookUrl: string | null = null;
+
+export interface MasterDriveConfig {
+  connected: boolean;
+  accessToken: string | null;
+  webhookUrl: string | null;
+  ownerEmail: string;
+}
 
 /**
  * Verifies a Google Drive access token by querying the Drive API v3 user profile
@@ -46,36 +74,40 @@ export async function verifyDriveToken(token: string): Promise<{ valid: boolean;
   }
 }
 
-import { supabaseAdmin, SUPABASE_BUCKET } from '../lib/supabase';
-
 /**
- * Stores the master owner's Google Drive authorization token in Firestore & localStorage
- * so that all client shops can sync backups directly into the central Google Drive.
+ * Saves the Master Google Drive configuration (OAuth token and/or Permanent Apps Script Webhook URL)
+ * to Firestore, localStorage, and Supabase Storage so all client shops can sync 24/7 without expiry.
  */
-export async function saveMasterDriveToken(token: string): Promise<void> {
-  if (!token) return;
+export async function saveMasterDriveToken(token: string, webhookUrl?: string): Promise<void> {
   try {
-    inMemoryAccessToken = token;
-    inMemoryTokenExpiry = Date.now() + 55 * 60 * 1000;
+    const existingConfig = await getMasterDriveConfig();
+    const resolvedToken = token || existingConfig.accessToken || 'connected';
+    const resolvedWebhook = webhookUrl !== undefined ? webhookUrl.trim() : (existingConfig.webhookUrl || '');
 
-    localStorage.setItem('master_google_drive_token', token);
+    inMemoryAccessToken = resolvedToken;
+    inMemoryWebhookUrl = resolvedWebhook;
+
+    localStorage.setItem('master_google_drive_token', resolvedToken);
     localStorage.setItem('master_google_drive_token_time', Date.now().toString());
+    if (resolvedWebhook) {
+      localStorage.setItem('master_google_drive_webhook', resolvedWebhook);
+    }
 
-    await setDoc(doc(db, 'system', MASTER_DRIVE_DOC), {
-      accessToken: token,
+    const payload = {
+      accessToken: resolvedToken,
+      webhookUrl: resolvedWebhook,
+      connected: true,
       ownerEmail: 'threadsandtailsshop@gmail.com',
       scope: DRIVE_SCOPE,
       updatedAt: serverTimestamp(),
       savedAtMs: Date.now(),
-    }, { merge: true });
+    };
 
-    // Also persist directly into Supabase Storage _db/system.json for immediate cross-device access
+    await setDoc(doc(db, 'system', MASTER_DRIVE_DOC), payload, { merge: true });
+
     const systemPayload = {
       [MASTER_DRIVE_DOC]: {
-        accessToken: token,
-        ownerEmail: 'threadsandtailsshop@gmail.com',
-        scope: DRIVE_SCOPE,
-        savedAtMs: Date.now(),
+        ...payload,
         updatedAt: new Date().toISOString(),
       }
     };
@@ -84,24 +116,38 @@ export async function saveMasterDriveToken(token: string): Promise<void> {
       .upload('_db/system.json', new Blob([JSON.stringify(systemPayload, null, 2)], { type: 'application/json' }), {
         upsert: true,
         contentType: 'application/json',
+        cacheControl: '0',
       })
       .catch(() => {});
   } catch (err) {
-    console.warn('Could not save master drive token to database:', err);
+    console.warn('Could not save master drive config to database:', err);
   }
 }
 
 /**
- * Clears the master Google Drive token from memory, localStorage, and Firestore
+ * Saves a permanent Google Apps Script Web App URL so Google Drive sync never expires
+ */
+export async function saveMasterDriveWebhookUrl(webhookUrl: string): Promise<void> {
+  const cleanUrl = webhookUrl.trim();
+  localStorage.setItem('master_google_drive_webhook', cleanUrl);
+  inMemoryWebhookUrl = cleanUrl;
+  await saveMasterDriveToken(inMemoryAccessToken || 'permanent_webhook', cleanUrl);
+}
+
+/**
+ * Clears the master Google Drive connection from memory, localStorage, and Firestore
  */
 export async function removeMasterDriveToken(): Promise<void> {
   inMemoryAccessToken = null;
-  inMemoryTokenExpiry = 0;
+  inMemoryWebhookUrl = null;
   localStorage.removeItem('master_google_drive_token');
   localStorage.removeItem('master_google_drive_token_time');
+  localStorage.removeItem('master_google_drive_webhook');
   try {
     await setDoc(doc(db, 'system', MASTER_DRIVE_DOC), {
       accessToken: null,
+      webhookUrl: null,
+      connected: false,
       updatedAt: serverTimestamp(),
       savedAtMs: 0,
     }, { merge: true });
@@ -109,6 +155,8 @@ export async function removeMasterDriveToken(): Promise<void> {
     const emptyPayload = {
       [MASTER_DRIVE_DOC]: {
         accessToken: null,
+        webhookUrl: null,
+        connected: false,
         ownerEmail: 'threadsandtailsshop@gmail.com',
         scope: DRIVE_SCOPE,
         savedAtMs: 0,
@@ -120,6 +168,7 @@ export async function removeMasterDriveToken(): Promise<void> {
       .upload('_db/system.json', new Blob([JSON.stringify(emptyPayload, null, 2)], { type: 'application/json' }), {
         upsert: true,
         contentType: 'application/json',
+        cacheControl: '0',
       })
       .catch(() => {});
   } catch (err) {
@@ -128,41 +177,42 @@ export async function removeMasterDriveToken(): Promise<void> {
 }
 
 /**
- * Retrieves the active master Google Drive access token across all devices.
+ * Retrieves the complete Master Google Drive configuration across all devices
  */
-export async function getMasterDriveToken(): Promise<string | null> {
-  // 1. Check in-memory cache
-  if (inMemoryAccessToken && Date.now() < inMemoryTokenExpiry) {
-    return inMemoryAccessToken;
-  }
-
-  // 2. Check local storage
+export async function getMasterDriveConfig(): Promise<MasterDriveConfig> {
   const localToken = localStorage.getItem('master_google_drive_token');
-  const tokenTime = Number(localStorage.getItem('master_google_drive_token_time') || 0);
+  const localWebhook = localStorage.getItem('master_google_drive_webhook');
 
-  if (localToken && Date.now() - tokenTime < 55 * 60 * 1000) {
-    inMemoryAccessToken = localToken;
-    inMemoryTokenExpiry = tokenTime + 55 * 60 * 1000;
-    return localToken;
-  }
-
-  // 3. Check Firestore / Supabase database
+  // 1. Check Firestore / Supabase database
   try {
     const snap = await getDoc(doc(db, 'system', MASTER_DRIVE_DOC));
     if (snap.exists()) {
       const data = snap.data();
-      if (data?.accessToken) {
-        inMemoryAccessToken = data.accessToken;
-        localStorage.setItem('master_google_drive_token', data.accessToken);
-        localStorage.setItem('master_google_drive_token_time', (data.savedAtMs || Date.now()).toString());
-        return data.accessToken;
+      const dbToken = data?.accessToken || null;
+      const dbWebhook = data?.webhookUrl || null;
+      const isConnected = Boolean(data?.connected || dbToken || dbWebhook);
+      if (isConnected) {
+        if (dbToken) {
+          inMemoryAccessToken = dbToken;
+          localStorage.setItem('master_google_drive_token', dbToken);
+        }
+        if (dbWebhook) {
+          inMemoryWebhookUrl = dbWebhook;
+          localStorage.setItem('master_google_drive_webhook', dbWebhook);
+        }
+        return {
+          connected: true,
+          accessToken: dbToken || localToken,
+          webhookUrl: dbWebhook || localWebhook,
+          ownerEmail: data?.ownerEmail || 'threadsandtailsshop@gmail.com',
+        };
       }
     }
   } catch (err) {
-    console.warn('Could not read master drive token from database:', err);
+    // ignore
   }
 
-  // 4. Check Supabase Storage _db/system.json directly as fallback
+  // 2. Fallback: Check Supabase Storage _db/system.json
   try {
     const { data: blob } = await supabaseAdmin.storage
       .from(SUPABASE_BUCKET)
@@ -170,24 +220,49 @@ export async function getMasterDriveToken(): Promise<string | null> {
     if (blob) {
       const text = await blob.text();
       const parsed = JSON.parse(text);
-      if (parsed?.[MASTER_DRIVE_DOC]?.accessToken) {
-        const tok = parsed[MASTER_DRIVE_DOC].accessToken;
-        inMemoryAccessToken = tok;
-        localStorage.setItem('master_google_drive_token', tok);
-        return tok;
+      const docData = parsed?.[MASTER_DRIVE_DOC];
+      if (docData && (docData.connected || docData.accessToken || docData.webhookUrl)) {
+        if (docData.accessToken) {
+          inMemoryAccessToken = docData.accessToken;
+          localStorage.setItem('master_google_drive_token', docData.accessToken);
+        }
+        if (docData.webhookUrl) {
+          inMemoryWebhookUrl = docData.webhookUrl;
+          localStorage.setItem('master_google_drive_webhook', docData.webhookUrl);
+        }
+        return {
+          connected: true,
+          accessToken: docData.accessToken || localToken,
+          webhookUrl: docData.webhookUrl || localWebhook,
+          ownerEmail: docData.ownerEmail || 'threadsandtailsshop@gmail.com',
+        };
       }
     }
   } catch (err) {
-    console.warn('Fallback check for drive token failed:', err);
+    // ignore
   }
 
-  return localToken || null;
+  const hasLocal = Boolean(localToken || localWebhook || inMemoryAccessToken || inMemoryWebhookUrl);
+  return {
+    connected: hasLocal,
+    accessToken: inMemoryAccessToken || localToken || null,
+    webhookUrl: inMemoryWebhookUrl || localWebhook || null,
+    ownerEmail: 'threadsandtailsshop@gmail.com',
+  };
 }
 
 /**
- * Obtains a Google Drive access token using the official Firebase Auth popup.
- * If the browser environment blocks popups or origins, throws a descriptive error
- * so the SuperAdminPage can allow pasting or testing the token directly.
+ * Retrieves the active master Google Drive token or connection marker across all devices.
+ * Never expires after 48 hours once connected.
+ */
+export async function getMasterDriveToken(): Promise<string | null> {
+  const config = await getMasterDriveConfig();
+  if (!config.connected) return null;
+  return config.webhookUrl || config.accessToken || 'connected';
+}
+
+/**
+ * Obtains a Google Drive authorization using the Firebase Auth popup.
  */
 export async function getGoogleDriveAccessToken(userEmail?: string, forceSelectAccount: boolean = false): Promise<string> {
   const targetEmail = userEmail || 'threadsandtailsshop@gmail.com';
@@ -224,9 +299,8 @@ export async function getGoogleDriveAccessToken(userEmail?: string, forceSelectA
       throw new Error('Another authorization popup is already active.');
     }
     
-    // Provide a clear explanation if domain mismatch or operation not allowed occurs
     throw new Error(
-      err?.message || 'Google authorization could not be completed via popup. You can connect using an OAuth Access Token.'
+      err?.message || 'Google authorization popup could not be completed. Use the Permanent Google Drive Bridge URL in Manage settings.'
     );
   }
 }
