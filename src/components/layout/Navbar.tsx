@@ -20,11 +20,11 @@ export function Navbar({ onMenuClick, showMenuButton }: NavbarProps) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [lowStockMobiles, setLowStockMobiles] = useState<any[]>([]);
 
-  const isSuperAdminRoute = location.pathname === '/super-admin';
   const isMasterAdmin = 
     (user?.email || '').toLowerCase() === 'threadsandtailsshop@gmail.com' ||
     (user?.email || '').toLowerCase() === 'admin@hisaabflow.com' ||
     Boolean(localStorage.getItem('master_admin_session'));
+  const isSuperAdminRoute = isMasterAdmin || location.pathname === '/super-admin';
 
   useEffect(() => {
     // Super admin portal does not track shop stock alerts

@@ -4,11 +4,13 @@ import { Sidebar } from './Sidebar';
 import { Navbar } from './Navbar';
 import { BottomNav } from './BottomNav';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 1024);
   const location = useLocation();
+  const { isMasterAdmin } = useAuth();
 
   useEffect(() => {
     const handleResize = () => {
@@ -23,9 +25,9 @@ export default function Layout() {
   // Close sidebar when route changes (mobile)
   const closeSidebar = () => setSidebarOpen(false);
 
-  const isSuperAdminRoute = location.pathname === '/super-admin';
+  const isSuperAdminRoute = isMasterAdmin || location.pathname === '/super-admin';
 
-  // Dedicated full-width layout for Master Super Admin portal
+  // Dedicated full-width layout for Master Super Admin portal (POS unavailable for Super Admin)
   if (isSuperAdminRoute) {
     return (
       <div className="flex h-screen overflow-hidden bg-surface-2 antialiased selection:bg-[#522D60] selection:text-white">

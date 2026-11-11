@@ -9,7 +9,7 @@ import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { 
   ShieldCheck, Users, Search, RefreshCw, UserPlus, Mail, Store, CheckCircle, AlertTriangle, Trash2,
-  Cloud, Database, Copy, Check, ExternalLink, Key, CheckCircle2, XCircle
+  Cloud, Database, Copy, Check, ExternalLink, Key, CheckCircle2, XCircle, HardDrive
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { parseDateSafe } from '../utils/dateUtils';
@@ -29,12 +29,27 @@ import {
 interface ShopTenant {
   id: string;
   ownerUid: string;
+  shopId: string;
   shopName: string;
   ownerName: string;
   ownerEmail: string;
   registeredDate: Date;
   lastActivityMs: number;
   status: 'active' | 'suspended';
+  bytesUsed: number;
+  recordsCount: number;
+}
+
+const FREE_TIER_LIMIT_MB = 500;
+const FREE_TIER_LIMIT_BYTES = FREE_TIER_LIMIT_MB * 1024 * 1024;
+
+function formatDataSize(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 KB';
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(2)} MB`;
 }
 
 export default function SuperAdminPage() {
@@ -75,9 +90,11 @@ export default function SuperAdminPage() {
   const [driveEmail, setDriveEmail] = useState<string | null>('threadsandtailsshop@gmail.com');
   const [driveStatus, setDriveStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
 
-  // Supabase PostgreSQL Schema state
+  // Supabase PostgreSQL Schema & Database Storage (500 MB Free Tier) state
   const [copiedSql, setCopiedSql] = useState(false);
   const [syncingSql, setSyncingSql] = useState(false);
+  const [totalDbBytes, setTotalDbBytes] = useState(0);
+  const [totalDbRecords, setTotalDbRecords] = useState(0);
 
   useEffect(() => {
     setDriveStatus('checking');
@@ -215,26 +232,20 @@ export default function SuperAdminPage() {
     }
     fetchTenants();
 
-    // Real-time listener on users & shops collections so any changes immediately reflect
-    const unsubUsers = onSnapshot(
-      collection(db, 'users'),
-      () => {
-        fetchTenants(true);
-      },
-      () => {}
-    );
-
-    const unsubShops = onSnapshot(
-      collection(db, 'shops'),
-      () => {
-        fetchTenants(true);
-      },
-      () => {}
+    // Real-time listeners on core collections so tenant accounts & database storage usage update live
+    const watchedCols = ['users', 'shops', 'mobiles', 'sales', 'bills', 'expenses', 'khata', 'khataTransactions'];
+    const unsubs = watchedCols.map((colName) =>
+      onSnapshot(
+        collection(db, colName),
+        () => {
+          fetchTenants(true);
+        },
+        () => {}
+      )
     );
 
     return () => {
-      unsubUsers();
-      unsubShops();
+      unsubs.forEach((u) => u());
     };
   }, [user, isMasterAdmin]);
 
@@ -242,10 +253,23 @@ export default function SuperAdminPage() {
     if (!silent) setLoading(true);
     setRefreshing(true);
     try {
-      const [usersSnap, shopsSnap, authListResult] = await Promise.all([
+      const dataColNames = [
+        'mobiles',
+        'sales',
+        'bills',
+        'expenses',
+        'khata',
+        'khataTransactions',
+        'purchases',
+        'backups',
+        'system_settings',
+      ];
+
+      const [usersSnap, shopsSnap, authListResult, ...dataSnaps] = await Promise.all([
         getDocs(collection(db, 'users')),
         getDocs(collection(db, 'shops')),
         supabaseAdmin.auth.admin.listUsers().catch(() => ({ data: { users: [] }, error: null })),
+        ...dataColNames.map((c) => getDocs(collection(db, c)).catch(() => ({ docs: [], forEach: () => {} } as any))),
       ]);
 
       const authUsers = authListResult?.data?.users || [];
@@ -357,16 +381,21 @@ export default function SuperAdminPage() {
         const resolvedOwnerName = isMaster
           ? 'Super Admin (Owner)'
           : (userData.name || shopData.ownerName || 'Shop Owner');
+        const resolvedUid = authUser?.id || userData.uid || shopData.ownerUid || docId;
+        const resolvedShopId = shopData.shopId || `shop_${resolvedUid.slice(0, 8)}`;
 
         const candidate: ShopTenant = {
           id: docId,
-          ownerUid: authUser?.id || userData.uid || shopData.ownerUid || docId,
+          ownerUid: resolvedUid,
+          shopId: resolvedShopId,
           shopName: resolvedShopName,
           ownerName: resolvedOwnerName,
           ownerEmail: email,
           registeredDate: createdDate,
           lastActivityMs: activityScore,
           status: (userData.status === 'suspended' || shopData.status === 'suspended') ? 'suspended' : 'active',
+          bytesUsed: 0,
+          recordsCount: 0,
         };
 
         if (emailMap.has(email)) {
@@ -385,8 +414,75 @@ export default function SuperAdminPage() {
         }
       }
 
-      const masterEmail = 'threadsandtailsshop@gmail.com';
+      // 4. Calculate real-time database storage (bytes & record count) per email and across entire database
+      const encoder = new TextEncoder();
+      const ROW_OVERHEAD_BYTES = 180; // PostgreSQL heap tuple + index entry overhead per document
+      const measureDocBytes = (docObj: any): number => {
+        try {
+          return encoder.encode(JSON.stringify(docObj || {})).length + ROW_OVERHEAD_BYTES;
+        } catch {
+          return 256;
+        }
+      };
+
       const list = Array.from(emailMap.values());
+      const tenantByEmail = new Map<string, ShopTenant>();
+      const tenantByUid = new Map<string, ShopTenant>();
+      const tenantByShopId = new Map<string, ShopTenant>();
+
+      for (const t of list) {
+        tenantByEmail.set(t.ownerEmail.toLowerCase().trim(), t);
+        if (t.ownerUid) tenantByUid.set(t.ownerUid, t);
+        if (t.id) tenantByUid.set(t.id, t);
+        if (t.shopId) tenantByShopId.set(t.shopId, t);
+      }
+
+      let cumulativeBytes = 0;
+      let cumulativeRecords = 0;
+
+      const attributeDocToTenant = (docId: string, docData: any) => {
+        if (!docData) return;
+        const size = measureDocBytes(docData);
+        cumulativeBytes += size;
+        cumulativeRecords += 1;
+
+        const docEmail = String(
+          docData.userEmail || docData.ownerEmail || docData.email || ''
+        )
+          .toLowerCase()
+          .trim();
+        const docUid = String(docData.userId || docData.ownerUid || docData.uid || docId || '');
+        const docShopId = String(docData.shopId || '');
+
+        const matchedTenant =
+          (docEmail && tenantByEmail.get(docEmail)) ||
+          (docUid && tenantByUid.get(docUid)) ||
+          (docShopId && tenantByShopId.get(docShopId));
+
+        if (matchedTenant) {
+          matchedTenant.bytesUsed += size;
+          matchedTenant.recordsCount += 1;
+        }
+      };
+
+      for (const [docId, uData] of usersById.entries()) {
+        attributeDocToTenant(docId, uData);
+      }
+      for (const [docId, sData] of shopsById.entries()) {
+        attributeDocToTenant(docId, sData);
+      }
+      for (const snap of dataSnaps) {
+        if (snap && Array.isArray(snap.docs)) {
+          for (const d of snap.docs) {
+            attributeDocToTenant(d.id, d.data());
+          }
+        }
+      }
+
+      setTotalDbBytes(cumulativeBytes);
+      setTotalDbRecords(cumulativeRecords);
+
+      const masterEmail = 'threadsandtailsshop@gmail.com';
       list.sort((a, b) => {
         if (a.ownerEmail === masterEmail) return -1;
         if (b.ownerEmail === masterEmail) return 1;
@@ -580,7 +676,7 @@ export default function SuperAdminPage() {
       </div>
 
       {/* KPI Stats + Master Integrations Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {/* Card 1: Total Client Shops */}
         <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-card flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20 flex items-center justify-center shrink-0">
@@ -589,6 +685,57 @@ export default function SuperAdminPage() {
           <div>
             <p className="text-xs font-semibold text-gray-400">Total Client Shops</p>
             <p className="text-3xl font-black text-gray-900">{totalClients}</p>
+          </div>
+        </div>
+
+        {/* Card 2: Database Storage (500 MB Free Tier) */}
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-card flex flex-col justify-between overflow-hidden">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="p-2 rounded-xl bg-purple-50 text-[#522D60] shrink-0">
+                  <HardDrive className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-gray-900 truncate">Database Storage</p>
+                  <p className="text-[10px] text-gray-400 truncate">500 MB Free Tier Quota</p>
+                </div>
+              </div>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20 shrink-0 tabular-nums">
+                {((totalDbBytes / FREE_TIER_LIMIT_BYTES) * 100).toFixed(2)}%
+              </span>
+            </div>
+
+            <div className="pt-1">
+              <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                <span className="text-sm font-black text-gray-900 tabular-nums">
+                  {(totalDbBytes / (1024 * 1024)).toFixed(2)} MB
+                  <span className="text-[11px] font-semibold text-gray-400 ml-1">
+                    ({formatDataSize(totalDbBytes)})
+                  </span>
+                </span>
+                <span className="text-[11px] font-bold text-gray-500 tabular-nums">
+                  / {FREE_TIER_LIMIT_MB} MB
+                </span>
+              </div>
+              <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden border border-gray-200/60">
+                <div
+                  className="h-full bg-[#522D60] rounded-full transition-all duration-500"
+                  style={{
+                    width: `${Math.min(100, Math.max(totalDbBytes > 0 ? 2 : 0, (totalDbBytes / FREE_TIER_LIMIT_BYTES) * 100))}%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-2.5 mt-2 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500 tabular-nums">
+            <span>
+              Free: <strong className="text-emerald-700">{Math.max(0, FREE_TIER_LIMIT_MB - totalDbBytes / (1024 * 1024)).toFixed(2)} MB</strong>
+            </span>
+            <span>
+              <strong className="text-gray-800">{totalDbRecords.toLocaleString()}</strong> records
+            </span>
           </div>
         </div>
 
@@ -719,11 +866,12 @@ export default function SuperAdminPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[650px] text-left text-xs">
+          <table className="w-full min-w-[720px] text-left text-xs">
             <thead>
               <tr className="bg-gray-50/80 border-b border-gray-100 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
                 <th className="px-5 py-3">Shop / Client</th>
                 <th className="px-5 py-3">Logged-in Gmail</th>
+                <th className="px-5 py-3">Data Used</th>
                 <th className="px-5 py-3">Join Date</th>
                 <th className="px-5 py-3">User UID</th>
                 <th className="px-5 py-3 text-center">Status</th>
@@ -733,7 +881,7 @@ export default function SuperAdminPage() {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-gray-400">
+                  <td colSpan={7} className="px-5 py-8 text-center text-gray-400">
                     <div className="flex items-center justify-center gap-2">
                       <RefreshCw className="w-4 h-4 animate-spin text-[#522D60]" />
                       <span>Syncing client accounts...</span>
@@ -742,7 +890,7 @@ export default function SuperAdminPage() {
                 </tr>
               ) : filteredTenants.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-gray-400">
+                  <td colSpan={7} className="px-5 py-8 text-center text-gray-400">
                     No client accounts found.
                   </td>
                 </tr>
@@ -771,6 +919,17 @@ export default function SuperAdminPage() {
                         <div className="flex items-center gap-1.5">
                           <Mail className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                           <span>{t.ownerEmail}</span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3.5 whitespace-nowrap">
+                        <div className="flex flex-col">
+                          <span className="inline-flex items-center gap-1 font-bold text-gray-900 tabular-nums">
+                            <HardDrive className="w-3 h-3 text-[#522D60] shrink-0" />
+                            {formatDataSize(t.bytesUsed)}
+                          </span>
+                          <span className="text-[10px] text-gray-400 tabular-nums">
+                            {t.recordsCount} {t.recordsCount === 1 ? 'record' : 'records'}
+                          </span>
                         </div>
                       </td>
                       <td className="px-5 py-3.5 text-gray-600 whitespace-nowrap font-medium">

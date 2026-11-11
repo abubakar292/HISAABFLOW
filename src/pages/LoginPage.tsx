@@ -34,10 +34,14 @@ export default function LoginPage() {
 
   const handlePostLoginRedirect = (userEmail: string) => {
     const clean = userEmail.toLowerCase().trim();
-    if (clean === 'threadsandtailsshop@gmail.com' || clean === 'admin@hisaabflow.com' || localStorage.getItem('master_admin_session') === 'true') {
-      navigate('/super-admin');
+    if (
+      clean === 'threadsandtailsshop@gmail.com' ||
+      clean === 'admin@hisaabflow.com' ||
+      localStorage.getItem('master_admin_session') === 'true'
+    ) {
+      navigate('/super-admin', { replace: true });
     } else {
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     }
   };
 
@@ -64,9 +68,8 @@ export default function LoginPage() {
   const handleGoogleSignIn = async () => {
     setError(null);
     try {
-      await signInGoogle();
-      const currentEmail = (window as any)._lastGoogleEmail || '';
-      handlePostLoginRedirect(currentEmail);
+      const signedInEmail = await signInGoogle();
+      handlePostLoginRedirect(signedInEmail || (window as any)._lastGoogleEmail || '');
     } catch (err: any) {
       setError(errorMessages[err.code] || err.message || 'Google sign-in failed.');
     }

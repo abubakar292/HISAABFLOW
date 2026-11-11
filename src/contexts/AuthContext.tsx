@@ -47,7 +47,7 @@ interface AuthContextType {
   isMasterAdmin: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (name: string, email: string, password: string) => Promise<void>;
-  signInGoogle: () => Promise<void>;
+  signInGoogle: () => Promise<string>;
   connectGoogleDrive: (forcePrompt?: boolean) => Promise<string>;
   logout: () => Promise<void>;
   updateProfileData: (data: Partial<ShopProfile>) => Promise<void>;
@@ -608,7 +608,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loadUserProfile(firebaseUser, cleanName).catch(console.warn);
   };
 
-  const signInGoogle = async () => {
+  const signInGoogle = async (): Promise<string> => {
     const provider = new GoogleAuthProvider();
     provider.addScope('https://www.googleapis.com/auth/drive.file');
     const result = await signInWithPopup(auth, provider);
@@ -617,10 +617,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       cachedDriveToken = credential.accessToken;
       setGoogleAccessToken(credential.accessToken);
     }
+    const signedInEmail = (result.user?.email || '').toLowerCase().trim();
+    (window as any)._lastGoogleEmail = signedInEmail;
+    if (MASTER_ADMIN_EMAILS.includes(signedInEmail)) {
+      localStorage.setItem('master_admin_session', 'true');
+    }
     if (result.user) {
       setUser(result.user);
       await loadUserProfile(result.user, result.user.displayName || undefined);
     }
+    return signedInEmail;
   };
 
   const isMasterAdmin = Boolean(
