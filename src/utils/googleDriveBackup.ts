@@ -19,6 +19,8 @@ export interface BackupSyncResult {
  */
 export async function compileShopBackupData(shopProfile: ShopProfile) {
   const shopId = shopProfile.shopId;
+  const cleanEmail = (shopProfile.ownerEmail || '').toLowerCase().trim();
+  const ownerUid = shopProfile.ownerUid || '';
   const collections = ['mobiles', 'sales', 'bills', 'khata', 'khataTransactions', 'expenses'];
   const archive: Record<string, any[]> = {};
   let totalRecords = 0;
@@ -28,7 +30,13 @@ export async function compileShopBackupData(shopProfile: ShopProfile) {
       const snap = await getDocs(collection(db, col));
       const docs = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter(doc => isDocForShop(doc, shopId));
+        .filter((doc: any) => {
+          if (shopId && isDocForShop(doc, shopId)) return true;
+          const docEmail = String(doc.userEmail || doc.ownerEmail || doc.email || '').toLowerCase().trim();
+          if (cleanEmail && docEmail === cleanEmail) return true;
+          if (ownerUid && (doc.userId === ownerUid || doc.ownerUid === ownerUid || doc.uid === ownerUid)) return true;
+          return false;
+        });
       archive[col] = docs;
       totalRecords += docs.length;
     } catch (err) {

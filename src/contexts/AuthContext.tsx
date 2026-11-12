@@ -468,6 +468,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user?.uid, user?.email]);
 
+  // Automatic Background Backup to Master Google Drive whenever client modifies shop data
+  useEffect(() => {
+    if (!user || user.isAnonymous || user.uid === 'master_admin') return;
+    if (!shopProfile?.shopId || !shopProfile?.autoBackupEnabled) return;
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const handleShopDataChanged = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(async () => {
+        try {
+          const { syncShopBackupToMasterCloud } = await import('../utils/googleDriveBackup');
+          const res = await syncShopBackupToMasterCloud(shopProfile);
+          if (res?.modifiedTime) {
+            updateShopProfile(user.uid, {
+              lastBackupTime: res.modifiedTime,
+              ...(res.fileId ? { googleDriveBackupFileId: res.fileId } : {}),
+            }).catch(() => {});
+          }
+        } catch (err) {
+          console.warn('Auto-backup background sync notice:', err);
+        }
+      }, 2000);
+    };
+
+    window.addEventListener('hisaabflow_shop_data_changed', handleShopDataChanged);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      window.removeEventListener('hisaabflow_shop_data_changed', handleShopDataChanged);
+    };
+  }, [user?.uid, shopProfile]);
+
   const signIn = async (email: string, password: string) => {
     const cleanEmail = email.trim().toLowerCase();
     const cleanPass = password.trim();

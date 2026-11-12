@@ -576,6 +576,14 @@ function schedulePersistCollection(colName: string) {
   const timer = setTimeout(async () => {
     pendingPersistTimers.delete(colName);
     await persistCollectionToSupabase(colName, map);
+    if (
+      typeof window !== 'undefined' &&
+      ['mobiles', 'sales', 'bills', 'expenses', 'khata', 'khataTransactions'].includes(colName)
+    ) {
+      window.dispatchEvent(
+        new CustomEvent('hisaabflow_shop_data_changed', { detail: { collection: colName } })
+      );
+    }
   }, 80);
 
   pendingPersistTimers.set(colName, timer);

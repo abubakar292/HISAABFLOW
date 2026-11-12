@@ -19,6 +19,7 @@ export interface ShopProfile {
   avatarUrl?: string;
   lastBackupTime?: string;
   googleDriveBackupFileId?: string;
+  autoBackupEnabled?: boolean;
   pinEnabled?: boolean;
   pinCodeHash?: string;
   createdAt?: any;

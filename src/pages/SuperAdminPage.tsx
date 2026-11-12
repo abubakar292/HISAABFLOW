@@ -25,6 +25,9 @@ import {
   getGoogleDriveAccessToken,
   PERMANENT_DRIVE_APPS_SCRIPT
 } from '../utils/googleAuthHelper';
+import { syncShopBackupToMasterCloud } from '../utils/googleDriveBackup';
+import { EMPTY_SHOP_PROFILE } from '../utils/multiTenantService';
+import { getInitials } from '../utils/brandIdentity';
 
 interface ShopTenant {
   id: string;
@@ -38,6 +41,7 @@ interface ShopTenant {
   status: 'active' | 'suspended';
   bytesUsed: number;
   recordsCount: number;
+  autoBackupEnabled?: boolean;
 }
 
 const FREE_TIER_LIMIT_MB = 500;
@@ -79,6 +83,8 @@ export default function SuperAdminPage() {
   // Modal for deleting a client shop account
   const [tenantToDelete, setTenantToDelete] = useState<ShopTenant | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [backingUpId, setBackingUpId] = useState<string | null>(null);
+  const lastAutoSyncSignatureRef = React.useRef<Map<string, string>>(new Map());
 
   // Master Google Drive state (Permanent — never expires)
   const [hasMasterDrive, setHasMasterDrive] = useState(false);
@@ -396,6 +402,7 @@ export default function SuperAdminPage() {
           status: (userData.status === 'suspended' || shopData.status === 'suspended') ? 'suspended' : 'active',
           bytesUsed: 0,
           recordsCount: 0,
+          autoBackupEnabled: Boolean(shopData.autoBackupEnabled || userData.autoBackupEnabled),
         };
 
         if (emailMap.has(email)) {
@@ -490,6 +497,28 @@ export default function SuperAdminPage() {
       });
 
       setTenants(list);
+
+      // Background auto-sync for any account with autoBackupEnabled whose data changed
+      for (const t of list) {
+        if (t.autoBackupEnabled) {
+          const sig = `${t.bytesUsed}_${t.recordsCount}`;
+          const prevSig = lastAutoSyncSignatureRef.current.get(t.ownerEmail);
+          if (prevSig && prevSig !== sig) {
+            lastAutoSyncSignatureRef.current.set(t.ownerEmail, sig);
+            syncShopBackupToMasterCloud({
+              ...EMPTY_SHOP_PROFILE,
+              shopId: t.shopId,
+              ownerUid: t.ownerUid,
+              ownerEmail: t.ownerEmail,
+              shopName: t.shopName,
+              shortName: getInitials(t.shopName),
+              ownerName: t.ownerName,
+            }).catch(() => {});
+          } else if (!prevSig) {
+            lastAutoSyncSignatureRef.current.set(t.ownerEmail, sig);
+          }
+        }
+      }
     } catch (e) {
       console.error('Error fetching tenants:', e);
       if (!silent) toast('Failed to load accounts list', 'error');
@@ -528,6 +557,51 @@ export default function SuperAdminPage() {
       success(`Updated status of ${tenant.shopName} to ${newStatus}.`);
     } catch (e) {
       toast('Failed to update shop status', 'error');
+    }
+  };
+
+  const handleBackupTenant = async (tenant: ShopTenant) => {
+    if (backingUpId) return;
+    setBackingUpId(tenant.id);
+    try {
+      const profile = {
+        ...EMPTY_SHOP_PROFILE,
+        shopId: tenant.shopId,
+        ownerUid: tenant.ownerUid,
+        ownerEmail: tenant.ownerEmail,
+        shopName: tenant.shopName,
+        shortName: getInitials(tenant.shopName),
+        ownerName: tenant.ownerName,
+      };
+
+      const res = await syncShopBackupToMasterCloud(profile);
+
+      const backupMeta: Record<string, any> = {
+        autoBackupEnabled: true,
+        lastBackupTime: res.modifiedTime,
+      };
+      if (res.fileId) {
+        backupMeta.googleDriveBackupFileId = res.fileId;
+      }
+
+      await Promise.all([
+        setDoc(doc(db, 'shops', tenant.id), backupMeta, { merge: true }).catch(() => {}),
+        setDoc(doc(db, 'users', tenant.id), backupMeta, { merge: true }).catch(() => {}),
+        tenant.ownerUid && tenant.ownerUid !== tenant.id
+          ? setDoc(doc(db, 'shops', tenant.ownerUid), backupMeta, { merge: true }).catch(() => {})
+          : Promise.resolve(),
+      ]);
+
+      lastAutoSyncSignatureRef.current.set(tenant.ownerEmail, `${tenant.bytesUsed}_${tenant.recordsCount}`);
+      setTenants((prev) =>
+        prev.map((t) => (t.id === tenant.id ? { ...t, autoBackupEnabled: true } : t))
+      );
+
+      success(`${res.fileName} saved to Drive! Auto-backup is now active for ${tenant.shopName}.`);
+    } catch (err: any) {
+      toast(err.message || 'Backup failed', 'error');
+    } finally {
+      setBackingUpId(null);
     }
   };
 
@@ -956,7 +1030,37 @@ export default function SuperAdminPage() {
                         {isOwner ? (
                           <span className="text-[11px] text-gray-400 italic">Super Admin</span>
                         ) : (
-                          <div className="inline-flex items-center justify-end gap-3">
+                          <div className="inline-flex items-center justify-end gap-2.5">
+                            <button
+                              type="button"
+                              onClick={() => handleBackupTenant(t)}
+                              disabled={backingUpId === t.id}
+                              title={
+                                t.autoBackupEnabled
+                                  ? 'Auto-Backup Active — updates automatically when client makes changes'
+                                  : 'Click once to create .json file in Drive & enable automatic sync'
+                              }
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                t.autoBackupEnabled
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                                  : 'bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20 hover:bg-purple-100/60'
+                              }`}
+                            >
+                              {backingUpId === t.id ? (
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                              ) : t.autoBackupEnabled ? (
+                                <Check className="w-3 h-3 text-emerald-600 stroke-[2.5]" />
+                              ) : (
+                                <Cloud className="w-3 h-3" />
+                              )}
+                              <span>
+                                {backingUpId === t.id
+                                  ? 'Saving...'
+                                  : t.autoBackupEnabled
+                                  ? 'Auto-Backup'
+                                  : 'Backup'}
+                              </span>
+                            </button>
                             <button
                               onClick={() => handleToggleStatus(t)}
                               className="text-[11px] font-bold text-[#522D60] hover:underline cursor-pointer"
