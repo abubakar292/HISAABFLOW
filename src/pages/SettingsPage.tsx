@@ -795,42 +795,17 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* ── 4. BACKUP & CLOUD STORAGE ── */}
+      {/* ── 4. OFFLINE BACKUP & RESTORE ── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
         <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <Cloud className="w-4 h-4 text-[#522D60]" />
-            <h2 className="font-bold text-gray-900 text-sm">Cloud & Offline Backups</h2>
+            <HardDrive className="w-4 h-4 text-[#522D60]" />
+            <h2 className="font-bold text-gray-900 text-sm">Offline Backup & Restore</h2>
           </div>
-          {shopProfile.lastBackupTime && (
-            <span className="text-[11px] text-gray-500 font-medium">
-              Last synced: {format(new Date(shopProfile.lastBackupTime), 'dd MMM yyyy, p')}
-            </span>
-          )}
         </div>
 
-        <div className="p-5 sm:p-6 space-y-4">
-          {/* Cloud Sync Card */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-purple-50/50 border border-purple-100">
-            <div className="space-y-0.5">
-              <p className="text-xs font-bold text-[#522D60]">Master Cloud Backup</p>
-              <p className="text-xs text-gray-500">
-                Back up your shop data into a dedicated <span className="font-semibold text-gray-700">{shopProfile.shopName || 'Shop'} Backup.json</span> file in the central cloud drive.
-              </p>
-            </div>
-            <Button 
-              onClick={handleSyncToGoogleDrive}
-              disabled={isSyncingDrive}
-              isLoading={isSyncingDrive}
-              className="bg-[#522D60] hover:bg-[#42244D] text-white text-xs sm:text-sm font-semibold shrink-0 cursor-pointer"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isSyncingDrive ? 'animate-spin' : ''}`} />
-              Sync Backup
-            </Button>
-          </div>
-
-          {/* Backup Action Buttons */}
-          <div className="flex flex-wrap items-center gap-2.5 pt-1">
+        <div className="p-5 sm:p-6">
+          <div className="flex flex-wrap items-center gap-2.5">
             <Button 
               variant="secondary"
               onClick={handleDownloadLocalBackup}
