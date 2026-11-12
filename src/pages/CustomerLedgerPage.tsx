@@ -482,7 +482,7 @@ export default function CustomerLedgerPage() {
 
           {customer.phone ? (
             <a
-              href={getWhatsAppKhataUrl(customer.phone, customer.name, customer.totalBalance || 0, customer.type)}
+              href={getWhatsAppKhataUrl(customer.phone, customer.name, customer.totalBalance || 0, customer.type, shopProfile.shopName)}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-xs transition-transform active:scale-95"
@@ -629,7 +629,8 @@ export default function CustomerLedgerPage() {
                         tx.amount,
                         tx.description,
                         tx.runningBalance,
-                        formatDateSafe(tx.date, 'dd MMM yyyy')
+                        formatDateSafe(tx.date, 'dd MMM yyyy'),
+                        shopProfile.shopName
                       )}
                       target="_blank"
                       rel="noreferrer"

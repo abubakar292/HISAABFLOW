@@ -358,7 +358,7 @@ export default function KhataPage() {
               <div className="flex items-center justify-between sm:justify-end gap-1.5 pt-2 sm:pt-0 border-t border-gray-100/70 sm:border-0 shrink-0">
                 {customer.phone ? (
                   <a
-                    href={getWhatsAppKhataUrl(customer.phone, customer.name, customer.totalBalance || 0, customer.type)}
+                    href={getWhatsAppKhataUrl(customer.phone, customer.name, customer.totalBalance || 0, customer.type, shopProfile.shopName)}
                     target="_blank"
                     rel="noreferrer"
                     onClick={(e) => e.stopPropagation()}
