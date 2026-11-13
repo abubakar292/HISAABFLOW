@@ -23,7 +23,7 @@ export default function MobilesStockPage() {
   const [khataCustomers, setKhataCustomers] = useState<any[]>([]);
   const [singleSelectedKhataId, setSingleSelectedKhataId] = useState('');
   const [multiSelectedKhataId, setMultiSelectedKhataId] = useState('');
-  const [multiTotalProfit, setMultiTotalProfit] = useState<number>(0);
+  const [multiTotalProfit, setMultiTotalProfit] = useState<number | string>(0);
   
   // Single Sell State & submission guard
   const [singleSellModal, setSingleSellModal] = useState<any>(null);
@@ -123,6 +123,11 @@ export default function MobilesStockPage() {
     e.preventDefault();
     if (!singleSellModal || isSingleSellingRef.current || isSingleSelling) return;
 
+    const sellPrice = Number(singleSellModal.sellPrice);
+    if (isNaN(sellPrice) || sellPrice <= 0) {
+      return error("Please enter a valid sell price");
+    }
+
     if (singleSellModal.paymentMethod === 'Udhar' && !singleSelectedKhataId) {
       return error("Please select a Khata customer for Udhar payment");
     }
@@ -131,8 +136,7 @@ export default function MobilesStockPage() {
     setIsSingleSelling(true);
 
     try {
-      const sellPrice = Number(singleSellModal.sellPrice);
-      const basePrice = singleSellModal.basePrice;
+      const basePrice = Number(singleSellModal.basePrice) || 0;
       const profit = sellPrice - basePrice;
 
       // Ensure exact local calendar date and time (immune to server UTC midnight regression)
@@ -268,6 +272,7 @@ export default function MobilesStockPage() {
     setMultiCustomerName('');
     setMultiCustomerPhone('');
     setMultiPaymentMethod('Cash');
+    setMultiTotalProfit(0);
     setMultiItems([{
       id: Date.now().toString(),
       mobileId: '', modelName: '', basePrice: 0, ramRom: '', company: ''
@@ -283,23 +288,32 @@ export default function MobilesStockPage() {
   };
 
   const updateMultiItem = (id: string, field: string, value: any) => {
-    setMultiItems(prev => prev.map(item => {
-      if (item.id !== id) return item;
-      if (field === 'mobileId') {
-        const mobile = mobiles.find(m => m.id === value);
-        return { 
-          ...item, 
-          mobileId: value, 
-          modelName: mobile?.modelName || '', 
-          company: mobile?.company || '',
-          ramRom: mobile?.ramRom || '',
-          basePrice: mobile?.basePrice || 0,
-          imei1: mobile?.imei1 || '',
-          imei2: mobile?.imei2 || '',
-        };
+    setMultiItems(prev => {
+      const next = prev.map(item => {
+        if (item.id !== id) return item;
+        if (field === 'mobileId') {
+          const mobile = mobiles.find(m => m.id === value);
+          return { 
+            ...item, 
+            mobileId: value, 
+            modelName: mobile?.modelName || '', 
+            company: mobile?.company || '',
+            ramRom: mobile?.ramRom || '',
+            basePrice: mobile?.basePrice || 0,
+            imei1: mobile?.imei1 || '',
+            imei2: mobile?.imei2 || '',
+          };
+        }
+        return { ...item, [field]: value };
+      });
+
+      const itemsWithPrice = next.filter(i => i.mobileId && i.sellPrice !== undefined && i.sellPrice !== '' && !isNaN(Number(i.sellPrice)));
+      if (itemsWithPrice.length > 0) {
+        const computedProfit = itemsWithPrice.reduce((sum, i) => sum + (Number(i.sellPrice) - (Number(i.basePrice) || 0)), 0);
+        setMultiTotalProfit(computedProfit);
       }
-      return { ...item, [field]: value };
-    }));
+      return next;
+    });
   };
 
   const handleMultiSell = async () => {
@@ -320,7 +334,7 @@ export default function MobilesStockPage() {
     try {
       const batch = writeBatch(db);
       
-      const totalBasePrice = validItems.reduce((acc, item) => acc + (item.basePrice || 0), 0);
+      const totalBasePrice = validItems.reduce((acc, item) => acc + (Number(item.basePrice) || 0), 0);
       const totalProfit = Number(multiTotalProfit) || 0;
       const totalSellPrice = totalBasePrice + totalProfit;
 
@@ -347,6 +361,10 @@ export default function MobilesStockPage() {
       const billNumber = `${billPrefix}-${new Date().getFullYear()}-${String(shopBillsCount + 1).padStart(4, '0')}`;
       
       const billItems = validItems.map(item => {
+        const hasItemSellPrice = item.sellPrice !== undefined && item.sellPrice !== '' && !isNaN(Number(item.sellPrice)) && Number(item.sellPrice) > 0;
+        const itemBase = Number(item.basePrice) || 0;
+        const itemSell = hasItemSellPrice ? Number(item.sellPrice) : itemBase + (totalProfit / validItems.length);
+        const itemProfit = hasItemSellPrice ? (itemSell - itemBase) : (totalProfit / validItems.length);
         return {
           mobileId: item.mobileId,
           modelName: item.modelName,
@@ -354,9 +372,9 @@ export default function MobilesStockPage() {
           ramRom: item.ramRom,
           imei1: item.imei1 || '',
           imei2: item.imei2 || '',
-          basePrice: item.basePrice,
-          sellPrice: item.basePrice + (totalProfit / validItems.length), // Distribute profit evenly for bill items
-          profit: totalProfit / validItems.length
+          basePrice: itemBase,
+          sellPrice: itemSell,
+          profit: itemProfit
         };
       });
 
@@ -579,10 +597,10 @@ export default function MobilesStockPage() {
 
               <div className="space-y-1 sm:col-span-2">
                 <label className="text-xs font-medium text-slate-500">Sell Price (Rs.) *</label>
-                <input required type="number" min={singleSellModal.basePrice} className="w-full rounded-xl border border-primary-500/20 bg-white/5 px-4 py-2 text-slate-900 outline-none focus:border-primary-500 focus:ring-2"
+                <input required type="number" min="1" step="any" className="w-full rounded-xl border border-primary-500/20 bg-white/5 px-4 py-2 text-slate-900 outline-none focus:border-primary-500 focus:ring-2"
                   value={singleSellModal.sellPrice} onChange={e => setSingleSellModal({...singleSellModal, sellPrice: e.target.value})} />
                 {Number(singleSellModal.sellPrice) > 0 && (
-                  <p className={`text-xs mt-1 ${Number(singleSellModal.sellPrice) >= singleSellModal.basePrice ? 'text-accent-emerald' : 'text-accent-rose'}`}>
+                  <p className={`text-xs mt-1 font-semibold ${Number(singleSellModal.sellPrice) >= singleSellModal.basePrice ? 'text-accent-emerald' : 'text-rose-600'}`}>
                     Profit: Rs. {(Number(singleSellModal.sellPrice) - singleSellModal.basePrice).toLocaleString()}
                   </p>
                 )}
@@ -786,13 +804,15 @@ export default function MobilesStockPage() {
                     <label className="text-xs font-medium text-slate-600 mb-1 block">Sell Price (Optional)</label>
                     <input
                       type="number"
+                      min="1"
+                      step="any"
                       value={item.sellPrice || ''}
                       onChange={(e) => updateMultiItem(item.id, 'sellPrice', e.target.value)}
-                      placeholder={`Min: Rs. ${item.basePrice}`}
+                      placeholder={`Cost: Rs. ${item.basePrice}`}
                       className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none bg-white"
                     />
                     {Number(item.sellPrice) > 0 && (
-                      <p className={`text-[11px] mt-1 font-medium ${Number(item.sellPrice) >= item.basePrice ? 'text-accent-emerald' : 'text-accent-rose'}`}>
+                      <p className={`text-[11px] mt-1 font-semibold ${Number(item.sellPrice) >= item.basePrice ? 'text-accent-emerald' : 'text-rose-600'}`}>
                         Profit: Rs. {(Number(item.sellPrice) - item.basePrice).toLocaleString()}
                       </p>
                     )}
@@ -829,10 +849,10 @@ export default function MobilesStockPage() {
               <span className="text-sm text-white/80 font-medium">Rs.</span>
               <input
                 type="number"
-                min="0"
-                value={multiTotalProfit || ''}
-                onChange={(e) => setMultiTotalProfit(parseFloat(e.target.value) || 0)}
-                placeholder="Profit"
+                step="any"
+                value={multiTotalProfit === 0 ? '' : multiTotalProfit}
+                onChange={(e) => setMultiTotalProfit(e.target.value)}
+                placeholder="Profit / -Loss"
                 className="w-32 bg-white/15 border border-white/30 text-white placeholder:text-white/50 rounded-xl px-3 py-1.5 outline-none focus:ring-2 focus:ring-white text-right font-bold text-sm"
               />
             </div>
@@ -840,7 +860,7 @@ export default function MobilesStockPage() {
 
           <div className="flex justify-between font-extrabold text-base sm:text-lg pt-2 border-t border-white/20">
             <span>Total Final Sale Amount:</span>
-            <span className="text-white">Rs. {(multiItems.reduce((s, i) => s + (i.basePrice || 0), 0) + (multiTotalProfit || 0)).toLocaleString()}</span>
+            <span className="text-white">Rs. {(multiItems.reduce((s, i) => s + (i.basePrice || 0), 0) + (Number(multiTotalProfit) || 0)).toLocaleString()}</span>
           </div>
         </div>
 

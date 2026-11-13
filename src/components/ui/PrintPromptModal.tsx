@@ -73,7 +73,7 @@ export function PrintPromptModal({ isOpen, onClose, billData, profit }: PrintPro
           
           <h3 className="font-bold text-lg mb-1 text-slate-800">Sale Completed</h3>
           <p className="text-slate-500 text-sm mb-2">
-            Profit: <span className="text-accent-emerald font-bold">Rs. {profit.toLocaleString()}</span>
+            Profit: <span className={`font-bold ${profit >= 0 ? 'text-accent-emerald' : 'text-rose-600'}`}>Rs. {profit.toLocaleString()}</span>
           </p>
           
           <div className="flex flex-col gap-2 mt-5">

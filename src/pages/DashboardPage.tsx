@@ -26,7 +26,7 @@ function AnimatedCounter({ value, prefix = '', suffix = '' }: { value: number, p
       if (!startTime) startTime = timestamp;
       const progress = Math.min((timestamp - startTime) / duration, 1);
       const easeOut = 1 - Math.pow(1 - progress, 4);
-      setCount(Math.floor(easeOut * value));
+      setCount(Math.round(easeOut * value));
       if (progress < 1) {
         window.requestAnimationFrame(step);
       }
