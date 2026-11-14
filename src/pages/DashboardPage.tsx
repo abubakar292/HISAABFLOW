@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { 
   TrendingUp, Package, DollarSign,
-  Plus, BarChart3, Clock, Smartphone, ReceiptText, BookOpen, Zap
+  Plus, BarChart3, Clock, Smartphone, ReceiptText, BookOpen, Zap, ShieldCheck, Truck
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
@@ -415,6 +415,12 @@ export default function DashboardPage() {
           { label: 'Stock & Sell', icon: Smartphone, color: 'bg-[#42244D]', path: '/mobiles-stock' },
           { label: 'Shop Expenses', icon: ReceiptText, color: 'bg-rose-600', path: '/expenses' },
           { label: 'Customer Khata', icon: BookOpen, color: 'bg-gray-800', path: '/khata' },
+          ...(shopProfile?.enableImeiCheck
+            ? [{ label: 'IMEI & Warranty Check', icon: ShieldCheck, color: 'bg-[#522D60]', path: '/imei-checker' }]
+            : []),
+          ...(shopProfile?.enableSupplierKhata
+            ? [{ label: 'Supplier Khata', icon: Truck, color: 'bg-slate-800', path: '/suppliers' }]
+            : []),
         ].map((action, i) => (
           <div
             key={i}

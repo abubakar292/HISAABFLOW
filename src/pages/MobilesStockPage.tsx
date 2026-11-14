@@ -106,6 +106,41 @@ export default function MobilesStockPage() {
     );
   });
 
+  const WARRANTY_PRESETS = [
+    { key: 'none', label: 'No Warranty', days: 0, printLabel: 'No Warranty' },
+    { key: '3d', label: '3 Days Check', days: 3, printLabel: '3 Days Check Warranty' },
+    { key: '7d', label: '7 Days Check', days: 7, printLabel: '7 Days Check Warranty' },
+    { key: '15d', label: '15 Days', days: 15, printLabel: '15 Days Check Warranty' },
+    { key: '1y', label: '1 Year Brand', days: 365, printLabel: '1 Year Brand Warranty' },
+    { key: 'custom', label: 'Custom Days', days: -1, printLabel: 'Custom' },
+  ];
+
+  const isImeiCheckEnabled = Boolean(shopProfile?.enableImeiCheck);
+
+  const resolveWarrantyInfo = (warrantyKey: string, customDaysStr: string) => {
+    if (!isImeiCheckEnabled) {
+      return {
+        warrantyDays: null,
+        warrantyLabel: '',
+      };
+    }
+    if (warrantyKey === 'custom') {
+      const d = Math.max(0, parseInt(customDaysStr, 10) || 0);
+      return {
+        warrantyDays: d,
+        warrantyLabel: d > 0 ? `${d} Days Check Warranty` : 'No Warranty',
+      };
+    }
+    const found = WARRANTY_PRESETS.find(p => p.key === warrantyKey) || WARRANTY_PRESETS[0];
+    return {
+      warrantyDays: found.days,
+      warrantyLabel: found.printLabel,
+    };
+  };
+
+  const [multiWarrantyKey, setMultiWarrantyKey] = useState('none');
+  const [multiCustomWarrantyDays, setMultiCustomWarrantyDays] = useState('');
+
   const openSingleSell = (mobile: any) => {
     setSingleSellModal({
       ...mobile,
@@ -115,7 +150,9 @@ export default function MobilesStockPage() {
       sellPrice: mobile.basePrice.toString(),
       imei1: mobile.imei1 || '',
       imei2: mobile.imei2 || '',
-      paymentMethod: 'Cash'
+      paymentMethod: 'Cash',
+      warrantyKey: mobile.condition === 'New' ? '1y' : '3d',
+      customWarrantyDays: ''
     });
   };
 
@@ -138,6 +175,10 @@ export default function MobilesStockPage() {
     try {
       const basePrice = Number(singleSellModal.basePrice) || 0;
       const profit = sellPrice - basePrice;
+      const { warrantyDays, warrantyLabel } = resolveWarrantyInfo(
+        singleSellModal.warrantyKey || 'none',
+        singleSellModal.customWarrantyDays || ''
+      );
 
       // Ensure exact local calendar date and time (immune to server UTC midnight regression)
       const chosenSaleDate = singleSellModal.saleDate || format(new Date(), 'yyyy-MM-dd');
@@ -171,6 +212,8 @@ export default function MobilesStockPage() {
         basePrice,
         sellPrice,
         profit,
+        warrantyDays,
+        warrantyLabel,
         paymentMethod: singleSellModal.paymentMethod,
         khataCustomerId: singleSellModal.paymentMethod === 'Udhar' ? singleSelectedKhataId : null,
         khataCustomerName: singleSellModal.paymentMethod === 'Udhar' ? khataCustomers.find(c => c.id === singleSelectedKhataId)?.name : null,
@@ -195,6 +238,8 @@ export default function MobilesStockPage() {
         billNumber,
         customerName: resolvedCustomerName,
         customerPhone: singleSellModal.customerPhone || '',
+        warrantyDays,
+        warrantyLabel,
         items: [{
           mobileId: singleSellModal.id,
           modelName: `${singleSellModal.company} ${singleSellModal.modelName}`,
@@ -203,7 +248,9 @@ export default function MobilesStockPage() {
           imei2: singleSellModal.imei2,
           sellPrice,
           basePrice,
-          profit
+          profit,
+          warrantyDays,
+          warrantyLabel
         }],
         totalSellPrice: sellPrice,
         totalProfit: profit,
@@ -272,6 +319,8 @@ export default function MobilesStockPage() {
     setMultiCustomerName('');
     setMultiCustomerPhone('');
     setMultiPaymentMethod('Cash');
+    setMultiWarrantyKey('3d');
+    setMultiCustomWarrantyDays('');
     setMultiTotalProfit(0);
     setMultiItems([{
       id: Date.now().toString(),
@@ -333,6 +382,7 @@ export default function MobilesStockPage() {
 
     try {
       const batch = writeBatch(db);
+      const { warrantyDays, warrantyLabel } = resolveWarrantyInfo(multiWarrantyKey, multiCustomWarrantyDays);
       
       const totalBasePrice = validItems.reduce((acc, item) => acc + (Number(item.basePrice) || 0), 0);
       const totalProfit = Number(multiTotalProfit) || 0;
@@ -374,7 +424,9 @@ export default function MobilesStockPage() {
           imei2: item.imei2 || '',
           basePrice: itemBase,
           sellPrice: itemSell,
-          profit: itemProfit
+          profit: itemProfit,
+          warrantyDays,
+          warrantyLabel
         };
       });
 
@@ -395,6 +447,8 @@ export default function MobilesStockPage() {
         billNumber,
         customerName: resolvedCustomerName,
         customerPhone: multiCustomerPhone || '',
+        warrantyDays,
+        warrantyLabel,
         items: billItems,
         totalSellPrice,
         totalProfit,
@@ -420,13 +474,15 @@ export default function MobilesStockPage() {
           itemId: item.mobileId,
           itemName: `${item.company} ${item.modelName}`,
           company: item.company,
-          imei1: '',
-          imei2: '',
+          imei1: item.imei1 || '',
+          imei2: item.imei2 || '',
           customerName: resolvedCustomerName,
           customerPhone: multiCustomerPhone || '',
           basePrice: item.basePrice,
           sellPrice: item.sellPrice,
           profit: item.profit,
+          warrantyDays,
+          warrantyLabel,
           paymentMethod: multiPaymentMethod,
           khataCustomerId: multiPaymentMethod === 'Udhar' ? multiSelectedKhataId : null,
           khataCustomerName: multiPaymentMethod === 'Udhar' ? khataCustomers.find(c => c.id === multiSelectedKhataId)?.name : null,
@@ -628,7 +684,47 @@ export default function MobilesStockPage() {
               </div>
             </div>
 
-            
+            {/* 1-CLICK WARRANTY SELECTOR (Only shown when IMEI & Warranty Check is enabled in Settings) */}
+            {isImeiCheckEnabled && (
+              <div className="space-y-2 pt-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Phone Warranty (Prints on Bill & Saved for IMEI Check)
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {WARRANTY_PRESETS.map((preset) => {
+                    const isSelected = (singleSellModal.warrantyKey || 'none') === preset.key;
+                    return (
+                      <button
+                        key={preset.key}
+                        type="button"
+                        onClick={() => setSingleSellModal({ ...singleSellModal, warrantyKey: preset.key })}
+                        className={`py-2 px-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-[#522D60] text-white border-[#522D60] shadow-xs'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {singleSellModal.warrantyKey === 'custom' && (
+                  <div className="pt-1">
+                    <input
+                      type="number"
+                      min="1"
+                      max="1095"
+                      placeholder="Enter custom warranty days (e.g. 10, 30, 60)"
+                      value={singleSellModal.customWarrantyDays || ''}
+                      onChange={(e) => setSingleSellModal({ ...singleSellModal, customWarrantyDays: e.target.value })}
+                      className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-xs font-bold text-slate-900 outline-none focus:border-[#522D60]"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method *</label>
             <div className="grid grid-cols-3 gap-2">
@@ -718,7 +814,47 @@ export default function MobilesStockPage() {
           </div>
         </div>
         
-        
+        {/* 1-CLICK WARRANTY SELECTOR FOR MULTI SELL (Only shown when IMEI & Warranty Check is enabled in Settings) */}
+        {isImeiCheckEnabled && (
+          <div className="mb-5 space-y-2">
+            <label className="block text-xs font-semibold text-slate-700">
+              Phone Warranty (Prints on Bill & Saved for IMEI Check)
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+              {WARRANTY_PRESETS.map((preset) => {
+                const isSelected = multiWarrantyKey === preset.key;
+                return (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    onClick={() => setMultiWarrantyKey(preset.key)}
+                    className={`py-2 px-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#522D60] text-white border-[#522D60] shadow-xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
+            {multiWarrantyKey === 'custom' && (
+              <div className="pt-1">
+                <input
+                  type="number"
+                  min="1"
+                  max="1095"
+                  placeholder="Enter custom warranty days (e.g. 10, 30, 60)"
+                  value={multiCustomWarrantyDays}
+                  onChange={(e) => setMultiCustomWarrantyDays(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-xs font-bold text-slate-900 outline-none focus:border-[#522D60]"
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method *</label>
           <div className="grid grid-cols-3 gap-2">

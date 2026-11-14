@@ -739,3 +739,88 @@ export const getWhatsAppSaleBillUrl = (
   }
   return `https://wa.me/?text=${encodeURIComponent(msg)}`;
 };
+
+export const getWhatsAppSupplierBalanceUrl = (
+  phone: string | undefined,
+  supplierName: string,
+  balance: number,
+  shopName?: string
+): string => {
+  if (!phone) return '#';
+  const cleanPhone = phone.replace(/[^0-9]/g, '');
+  const formattedPhone = cleanPhone.startsWith('0') ? '92' + cleanPhone.slice(1) : cleanPhone;
+  const urduShopName = convertShopNameToUrdu(shopName);
+
+  const message =
+    balance > 0
+      ? `السلام علیکم ${supplierName || 'صاحب'}،\n\n*${urduShopName}* کی طرف سے آپ کے کھاتے کا موجودہ بقایا بل: *Rs. ${balance.toLocaleString()}* واجب الادا (Payable) ہے۔\n\nشکریہ!\n*${urduShopName}*`
+      : balance < 0
+      ? `السلام علیکم ${supplierName || 'صاحب'}،\n\n*${urduShopName}* کی طرف سے آپ کے پاس ہماری ایڈوانس رقم: *Rs. ${Math.abs(balance).toLocaleString()}* جمع ہے۔\n\nشکریہ!\n*${urduShopName}*`
+      : `السلام علیکم ${supplierName || 'صاحب'}،\n\n*${urduShopName}* کے ساتھ آپ کا کھاتہ مکمل کلئیر (Rs. 0) ہے۔\n\nشکریہ!\n*${urduShopName}*`;
+
+  return `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`;
+};
+
+export const getWhatsAppSupplierTxUrl = (
+  phone: string | undefined,
+  supplierName: string,
+  txType: 'purchase' | 'payment',
+  amount: number,
+  paymentMethod?: string,
+  referenceId?: string,
+  description?: string,
+  runningBalance?: number,
+  dateStr?: string,
+  shopName?: string
+): string => {
+  if (!phone) return '#';
+  const cleanPhone = phone.replace(/[^0-9]/g, '');
+  const formattedPhone = cleanPhone.startsWith('0') ? '92' + cleanPhone.slice(1) : cleanPhone;
+
+  const urduShopName = convertShopNameToUrdu(shopName);
+  const typeUrdu =
+    txType === 'payment'
+      ? 'ادائیگی بھیج دی گئی (Payment Sent)'
+      : 'مال خریداری بل (Stock Purchase)';
+  const dateFormatted = dateStr || new Date().toLocaleDateString('en-GB');
+
+  let message = `السلام علیکم ${supplierName || 'صاحب'}،\n\n*${urduShopName}* کی طرف سے کھاتہ اپڈیٹ:\n\n📅 تاریخ: *${dateFormatted}*\n📌 نوعیت: *${typeUrdu}*\n💰 رقم: *Rs. ${(amount || 0).toLocaleString()}*`;
+
+  if (paymentMethod) {
+    message += `\n💳 طریقہ: *${paymentMethod}*`;
+  }
+  if (referenceId) {
+    message += `\n🔢 ٹرانزیکشن / بل نمبر: *${referenceId}*`;
+  }
+  if (description) {
+    message += `\n📝 تفصیل: ${description}`;
+  }
+  if (runningBalance !== undefined && runningBalance !== null) {
+    message += `\n\n📊 موجودہ کل بقایا: *Rs. ${runningBalance.toLocaleString()}*`;
+  }
+
+  message += `\n\nشکریہ!\n*${urduShopName}*`;
+  return `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`;
+};
+
+export const getWhatsAppImeiWarrantyUrl = (
+  phone: string | undefined,
+  customerName: string,
+  modelName: string,
+  imei: string,
+  saleDateStr: string,
+  warrantyStatusText: string,
+  shopName?: string
+): string => {
+  const cleanPhone = (phone || '').replace(/[^0-9]/g, '');
+  const formattedPhone = cleanPhone.startsWith('0') ? '92' + cleanPhone.slice(1) : cleanPhone;
+  const urduShopName = convertShopNameToUrdu(shopName);
+
+  const msg = `السلام علیکم ${customerName || 'صاحب'}،\n\n*${urduShopName}* — IMEI وارنٹی اور ریکارڈ کی تفصیل:\n\n📱 موبائل: *${modelName}*\n🔢 IMEI: *${imei}*\n📅 تاریخ خریداری: *${saleDateStr}*\n🛡️ وارنٹی سٹیٹس: *${warrantyStatusText}*\n\nشکریہ!\n*${urduShopName}*`;
+
+  if (formattedPhone) {
+    return `https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`;
+  }
+  return `https://wa.me/?text=${encodeURIComponent(msg)}`;
+};
+

@@ -22,6 +22,8 @@ export interface ShopProfile {
   autoBackupEnabled?: boolean;
   pinEnabled?: boolean;
   pinCodeHash?: string;
+  enableImeiCheck?: boolean;
+  enableSupplierKhata?: boolean;
   createdAt?: any;
   updatedAt?: any;
 }
@@ -60,6 +62,8 @@ export const EMPTY_SHOP_PROFILE: ShopProfile = {
   whatsappFooter: '',
   logoUrl: '',
   avatarUrl: '',
+  enableImeiCheck: false,
+  enableSupplierKhata: false,
 };
 
 /**

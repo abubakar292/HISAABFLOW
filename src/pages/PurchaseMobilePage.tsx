@@ -52,6 +52,13 @@ export default function PurchaseMobilePage() {
   // Scanner state
   const [scannerOpen, setScannerOpen] = useState(false);
   const [activeScanField, setActiveScanField] = useState<'imei1' | 'imei2' | null>(null);
+  const [suppliersList, setSuppliersList] = useState<any[]>([]);
+
+  // Inline Quick Add Supplier inside Purchase Modal
+  const [showInlineAddSupplier, setShowInlineAddSupplier] = useState(false);
+  const [newSupplierName, setNewSupplierName] = useState('');
+  const [newSupplierPhone, setNewSupplierPhone] = useState('');
+  const [isCreatingSupplier, setIsCreatingSupplier] = useState(false);
 
   const [formData, setFormData] = useState({
     modelName: '',
@@ -63,6 +70,8 @@ export default function PurchaseMobilePage() {
     condition: 'New',
     purchaseDate: format(new Date(), 'yyyy-MM-dd'),
     supplier: '',
+    supplierId: '',
+    purchasePaymentType: 'Cash' as 'Cash' | 'SupplierCredit',
     registerPageNo: '',
     imei1: '',
     imei2: '',
@@ -71,6 +80,42 @@ export default function PurchaseMobilePage() {
 
   const { success, error } = useToast();
   const { confirm } = useConfirm();
+
+  const handleCreateSupplierInline = async () => {
+    if (!user || !currentShopId) return error('Please sign in first');
+    const cleanName = newSupplierName.trim();
+    if (!cleanName) return error('Please enter supplier name');
+    if (isCreatingSupplier) return;
+
+    setIsCreatingSupplier(true);
+    try {
+      const supRef = await addDoc(collection(db, 'suppliers'), {
+        shopId: currentShopId,
+        userId: user.uid,
+        userEmail: (user.email || '').toLowerCase(),
+        name: cleanName,
+        phone: newSupplierPhone.trim(),
+        notes: '',
+        totalBalance: 0,
+        createdAt: serverTimestamp(),
+      });
+
+      setFormData((prev) => ({
+        ...prev,
+        supplierId: supRef.id,
+        supplier: cleanName,
+        purchasePaymentType: 'SupplierCredit',
+      }));
+      setNewSupplierName('');
+      setNewSupplierPhone('');
+      setShowInlineAddSupplier(false);
+      success(`Supplier "${cleanName}" added and selected`);
+    } catch (err: any) {
+      error(err.message || 'Failed to add supplier');
+    } finally {
+      setIsCreatingSupplier(false);
+    }
+  };
 
   const handleScan = (imei: string) => {
     if (activeScanField) {
@@ -101,7 +146,23 @@ export default function PurchaseMobilePage() {
         setLoading(false);
       }
     );
-    return unsub;
+
+    const unsubSuppliers = onSnapshot(
+      collection(db, 'suppliers'),
+      (snap) => {
+        const sList = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(s => isDocForShop(s, currentShopId));
+        sList.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+        setSuppliersList(sList);
+      },
+      () => {}
+    );
+
+    return () => {
+      unsub();
+      unsubSuppliers();
+    };
   }, [user, currentShopId]);
 
   const filteredMobiles = mobiles.filter(m => {
@@ -117,6 +178,9 @@ export default function PurchaseMobilePage() {
   });
 
   const handleOpenModal = (mobile?: any) => {
+    setShowInlineAddSupplier(false);
+    setNewSupplierName('');
+    setNewSupplierPhone('');
     if (mobile) {
       setEditingId(mobile.id);
       const rawComp = mobile.company || mobile.brand || '';
@@ -131,6 +195,8 @@ export default function PurchaseMobilePage() {
         condition: mobile.condition || 'New',
         purchaseDate: formatDateSafe(mobile.purchaseDate || new Date(), 'yyyy-MM-dd'),
         supplier: mobile.supplier || '',
+        supplierId: mobile.supplierId || '',
+        purchasePaymentType: mobile.purchasePaymentType === 'SupplierCredit' ? 'SupplierCredit' : 'Cash',
         registerPageNo: (mobile.registerPageNo ?? '').toString(),
         imei1: mobile.imei1 || '',
         imei2: mobile.imei2 || '',
@@ -148,6 +214,8 @@ export default function PurchaseMobilePage() {
         condition: 'New',
         purchaseDate: format(new Date(), 'yyyy-MM-dd'),
         supplier: '',
+        supplierId: '',
+        purchasePaymentType: 'Cash',
         registerPageNo: '',
         imei1: '',
         imei2: '',
@@ -156,6 +224,8 @@ export default function PurchaseMobilePage() {
     }
     setIsModalOpen(true);
   };
+
+  const isSupplierKhataEnabled = Boolean(shopProfile?.enableSupplierKhata);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,8 +240,21 @@ export default function PurchaseMobilePage() {
         return error('Please enter model name');
       }
 
+      const effectivePaymentType = isSupplierKhataEnabled ? formData.purchasePaymentType : 'Cash';
+      const effectiveSupplierId = isSupplierKhataEnabled ? formData.supplierId : '';
+
+      if (!editingId && effectivePaymentType === 'SupplierCredit' && !effectiveSupplierId) {
+        return error('Please select or add a Supplier for Credit (Supplier Khata) purchase');
+      }
+
       isSubmittingRef.current = true;
       setIsSubmitting(true);
+
+      const selectedSup = effectiveSupplierId ? suppliersList.find(s => s.id === effectiveSupplierId) : null;
+      const resolvedSupplierName = selectedSup ? selectedSup.name : formData.supplier.trim();
+      const unitCost = Number(formData.basePrice) || 0;
+      const qty = Number(formData.quantity) || 1;
+      const totalPurchaseAmount = unitCost * qty;
 
       const data = {
         shopId: currentShopId,
@@ -180,11 +263,19 @@ export default function PurchaseMobilePage() {
         modelName: formData.modelName.trim(),
         company: resolvedCompany,
         ramRom: formData.ramRom.trim(),
-        basePrice: Number(formData.basePrice) || 0,
-        quantity: Number(formData.quantity) || 1,
+        basePrice: unitCost,
+        initialQuantity: qty,
+        quantity: qty,
         condition: formData.condition,
-        purchaseDate: new Date(formData.purchaseDate),
-        supplier: formData.supplier.trim(),
+        purchaseDate: parseDateSafe(formData.purchaseDate) || new Date(),
+        purchaseDateStr: formData.purchaseDate || format(new Date(), 'yyyy-MM-dd'),
+        supplier: resolvedSupplierName,
+        supplierId: effectiveSupplierId || null,
+        purchasePaymentType:
+          effectiveSupplierId && effectivePaymentType === 'Cash'
+            ? 'CashExplicit'
+            : effectivePaymentType,
+        supplierTxCreated: Boolean(selectedSup && totalPurchaseAmount > 0 && effectivePaymentType === 'SupplierCredit'),
         registerPageNo: formData.registerPageNo ? formData.registerPageNo.trim() : '',
         imei1: formData.imei1 ? formData.imei1.trim() : '',
         imei2: formData.imei2 ? formData.imei2.trim() : '',
@@ -195,11 +286,45 @@ export default function PurchaseMobilePage() {
         await updateDoc(doc(db, 'mobiles', editingId), data);
         success('Mobile updated successfully');
       } else {
-        await addDoc(collection(db, 'mobiles'), {
+        const mobileDocRef = await addDoc(collection(db, 'mobiles'), {
           ...data,
           createdAt: serverTimestamp()
         });
-        success('Mobile added successfully');
+
+        // If Supplier Khata is enabled and a registered supplier is selected on credit, record in Supplier Khata
+        if (isSupplierKhataEnabled && selectedSup && totalPurchaseAmount > 0 && effectivePaymentType === 'SupplierCredit') {
+          const rawBal = Number(selectedSup.totalBalance) || 0;
+          const baseBal = rawBal > 0 ? rawBal : 0;
+          const newBal = baseBal + totalPurchaseAmount;
+          const pDateStr = formData.purchaseDate || format(new Date(), 'yyyy-MM-dd');
+
+          await addDoc(collection(db, 'supplierTransactions'), {
+            shopId: currentShopId,
+            userId: user?.uid,
+            userEmail: (user?.email || '').toLowerCase(),
+            supplierId: selectedSup.id,
+            supplierName: selectedSup.name,
+            transactionType: 'purchase',
+            amount: totalPurchaseAmount,
+            paymentMethod: 'Credit Purchase',
+            referenceId: formData.registerPageNo ? `Pg#${formData.registerPageNo}` : '',
+            description: `${qty}x ${resolvedCompany} ${formData.modelName.trim()}${formData.imei1 ? ` (IMEI: ${formData.imei1})` : ''}`,
+            runningBalance: newBal,
+            linkedMobileId: mobileDocRef.id,
+            date: parseDateSafe(pDateStr) || new Date(),
+            dateStr: pDateStr,
+            createdAt: serverTimestamp()
+          });
+
+          await updateDoc(doc(db, 'suppliers', selectedSup.id), {
+            totalBalance: newBal,
+            updatedAt: serverTimestamp()
+          });
+
+          success(`Mobile added & Rs. ${totalPurchaseAmount.toLocaleString()} added to ${selectedSup.name}'s Supplier Khata`);
+        } else {
+          success('Mobile added successfully');
+        }
       }
       setIsModalOpen(false);
     } catch (err: any) {
@@ -418,142 +543,310 @@ export default function PurchaseMobilePage() {
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
         title={editingId ? 'Edit Mobile' : 'Add Mobile'}
+        size="lg"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Select
-              label="Company *"
-              required
-              value={formData.company}
-              onChange={e => setFormData({...formData, company: e.target.value})}
-              options={COMPANIES}
-            />
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Company <span className="text-rose-500">*</span>
+              </label>
+              <select
+                required
+                value={formData.company}
+                onChange={e => setFormData({...formData, company: e.target.value})}
+                className="w-full h-[42px] rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 outline-none focus:border-[#522D60] focus:ring-2 focus:ring-[#522D60]/15 transition-all"
+              >
+                {COMPANIES.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Model Name <span className="text-rose-500">*</span>
+              </label>
+              <input
+                required
+                type="text"
+                placeholder="e.g. iPhone 13 Pro / Galaxy A54"
+                className="w-full h-[42px] rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 outline-none focus:border-[#522D60] focus:ring-2 focus:ring-[#522D60]/15 transition-all"
+                value={formData.modelName}
+                onChange={e => setFormData({...formData, modelName: e.target.value})}
+              />
+            </div>
+
             {formData.company === 'Other' && (
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-500">Custom Brand Name *</label>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Custom Brand Name <span className="text-rose-500">*</span>
+                </label>
                 <input
                   required
                   type="text"
-                  placeholder="e.g. Motorola"
-                  className="w-full rounded-xl border border-primary-500/20 bg-white/5 px-4 py-2.5 text-slate-900 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
+                  placeholder="e.g. Motorola, Sony, Honor"
+                  className="w-full h-[42px] rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 outline-none focus:border-[#522D60] focus:ring-2 focus:ring-[#522D60]/15 transition-all"
                   value={formData.customCompany}
                   onChange={e => setFormData({...formData, customCompany: e.target.value})}
                 />
               </div>
             )}
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-500">Model Name *</label>
-              <input
-                required
-                type="text"
-                className="w-full rounded-xl border border-primary-500/20 bg-white/5 px-4 py-2.5 text-slate-900 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
-                value={formData.modelName}
-                onChange={e => setFormData({...formData, modelName: e.target.value})}
-              />
-            </div>
             
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-500">RAM/ROM</label>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                RAM / ROM
+              </label>
               <input
                 type="text"
-                placeholder="e.g. 8GB/128GB"
-                className="w-full rounded-xl border border-primary-500/20 bg-white/5 px-4 py-2.5 text-slate-900 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
+                placeholder="e.g. 8GB / 128GB"
+                className="w-full h-[42px] rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 outline-none focus:border-[#522D60] focus:ring-2 focus:ring-[#522D60]/15 transition-all"
                 value={formData.ramRom}
                 onChange={e => setFormData({...formData, ramRom: e.target.value})}
               />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-500">Base Price (Rs.) *</label>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Base Price (Rs.) <span className="text-rose-500">*</span>
+              </label>
               <input
                 required
                 type="number"
                 min="0"
-                className="w-full rounded-xl border border-primary-500/20 bg-white/5 px-4 py-2.5 text-slate-900 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
+                placeholder="0"
+                className="w-full h-[42px] rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-mono font-bold text-slate-900 outline-none focus:border-[#522D60] focus:ring-2 focus:ring-[#522D60]/15 transition-all"
                 value={formData.basePrice}
                 onChange={e => setFormData({...formData, basePrice: e.target.value})}
               />
             </div>
 
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-500">Quantity *</label>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Quantity <span className="text-rose-500">*</span>
+              </label>
               <input
                 required
                 type="number"
                 min="1"
-                className="w-full rounded-xl border border-primary-500/20 bg-white/5 px-4 py-2.5 text-slate-900 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
+                className="w-full h-[42px] rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-mono font-bold text-slate-900 outline-none focus:border-[#522D60] focus:ring-2 focus:ring-[#522D60]/15 transition-all"
                 value={formData.quantity}
                 onChange={e => setFormData({...formData, quantity: e.target.value})}
               />
             </div>
-            <Select
-              label="Condition *"
-              required
-              value={formData.condition}
-              onChange={e => setFormData({...formData, condition: e.target.value})}
-              options={[
-                { value: 'New', label: 'New' },
-                { value: 'Used', label: 'Used' },
-                { value: 'Refurbished', label: 'Refurbished' },
-              ]}
-            />
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Condition <span className="text-rose-500">*</span>
+              </label>
+              <select
+                required
+                value={formData.condition}
+                onChange={e => setFormData({...formData, condition: e.target.value})}
+                className="w-full h-[42px] rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 outline-none focus:border-[#522D60] focus:ring-2 focus:ring-[#522D60]/15 transition-all"
+              >
+                <option value="New">New</option>
+                <option value="Used">Used</option>
+                <option value="Refurbished">Refurbished</option>
+              </select>
+            </div>
             
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-500">Purchase Date *</label>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Purchase Date <span className="text-rose-500">*</span>
+              </label>
               <input
                 required
                 type="date"
-                className="w-full rounded-xl border border-primary-500/20 bg-white/5 px-4 py-2.5 text-slate-900 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
+                className="w-full h-[42px] rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 outline-none focus:border-[#522D60] focus:ring-2 focus:ring-[#522D60]/15 transition-all"
                 value={formData.purchaseDate}
                 onChange={e => setFormData({...formData, purchaseDate: e.target.value})}
               />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-500">Supplier</label>
-              <input
-                type="text"
-                placeholder="e.g. Local Market / Supplier Name"
-                className="w-full rounded-xl border border-primary-500/20 bg-white/5 px-4 py-2.5 text-slate-900 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
-                value={formData.supplier}
-                onChange={e => setFormData({...formData, supplier: e.target.value})}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
-                <span>Register Page No.</span>
-                <span className="text-[11px] font-normal text-slate-400">Numbers only</span>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Register Page No. <span className="text-slate-400 font-normal">(Optional)</span>
               </label>
               <input
                 type="number"
                 min="1"
                 placeholder="e.g. 45"
-                className="w-full font-mono font-bold text-base rounded-xl border border-amber-500/30 bg-amber-50/30 px-4 py-2.5 text-slate-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 shadow-2xs"
+                className="w-full h-[42px] font-mono font-bold text-sm rounded-xl border border-slate-200 bg-white px-3.5 text-slate-900 outline-none focus:border-[#522D60] focus:ring-2 focus:ring-[#522D60]/15 transition-all"
                 value={formData.registerPageNo}
                 onChange={e => setFormData({...formData, registerPageNo: e.target.value.replace(/\D/g, '')})}
               />
             </div>
           </div>
 
+          {/* When Supplier Khata is ENABLED in Settings: Show aligned, compact Supplier & Payment Section */}
+          {isSupplierKhataEnabled && (
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-slate-800">
+                  Supplier & Khata Payment
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setShowInlineAddSupplier((prev) => !prev)}
+                  className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold bg-[#FAF5FC] hover:bg-[#F3E8FA] text-[#522D60] border border-[#522D60]/20 transition-colors cursor-pointer shrink-0"
+                >
+                  {showInlineAddSupplier ? 'Cancel' : '+ Add New Supplier'}
+                </button>
+              </div>
+
+              {/* Inline Quick-Add Supplier Box */}
+              {showInlineAddSupplier && (
+                <div className="p-3 rounded-xl bg-white border border-[#522D60]/25 shadow-2xs space-y-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Supplier Name *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Ali Mobile Wholesale"
+                        value={newSupplierName}
+                        onChange={(e) => setNewSupplierName(e.target.value)}
+                        className="w-full h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-900 outline-none focus:border-[#522D60]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Phone Number (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 0300-1234567"
+                        value={newSupplierPhone}
+                        onChange={(e) => setNewSupplierPhone(e.target.value)}
+                        className="w-full h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-900 outline-none focus:border-[#522D60]"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowInlineAddSupplier(false)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isCreatingSupplier}
+                      onClick={handleCreateSupplierInline}
+                      className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-[#522D60] hover:bg-[#42244D] text-white shadow-2xs disabled:opacity-50 cursor-pointer"
+                    >
+                      {isCreatingSupplier ? 'Saving...' : 'Save & Select'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Clean 2-Column Row: Col 1 = Select Supplier, Col 2 = Payment Mode */}
+              <div className={`grid grid-cols-1 ${!editingId ? 'sm:grid-cols-2' : ''} gap-3`}>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Select Supplier
+                  </label>
+                  <select
+                    value={formData.supplierId}
+                    onChange={(e) => {
+                      const supId = e.target.value;
+                      const found = suppliersList.find((s) => s.id === supId);
+                      setFormData({
+                        ...formData,
+                        supplierId: supId,
+                        supplier: found ? found.name : '',
+                        purchasePaymentType: supId ? 'SupplierCredit' : 'Cash',
+                      });
+                    }}
+                    className="w-full h-[42px] rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 outline-none focus:border-[#522D60]"
+                  >
+                    <option value="">Walk-in / Cash Seller</option>
+                    {suppliersList.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}{s.phone ? ` (${s.phone})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {!editingId && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Payment Mode
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 h-[42px]">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormData({ ...formData, purchasePaymentType: 'SupplierCredit' })
+                        }
+                        className={`rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                          formData.purchasePaymentType === 'SupplierCredit'
+                            ? 'bg-[#522D60] text-white border-[#522D60] shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        Supplier Khata
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormData({ ...formData, purchasePaymentType: 'Cash' })
+                        }
+                        className={`rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                          formData.purchasePaymentType === 'Cash'
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        Paid Cash
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {!editingId && formData.purchasePaymentType === 'SupplierCredit' && (
+                <p className="text-xs text-[#522D60] font-semibold">
+                  {formData.supplierId
+                    ? `Rs. ${(
+                        (Number(formData.basePrice) || 0) *
+                        (Number(formData.quantity) || 1)
+                      ).toLocaleString()} will be added to ${formData.supplier}'s Supplier Khata.`
+                    : 'Please select a Supplier from the dropdown or click "+ Add New Supplier".'}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Optional IMEI 1 and IMEI 2 with Barcode / QR Scanner */}
-          <div className="p-4 bg-slate-50/90 rounded-2xl border border-slate-200 space-y-3.5">
+          <div className="p-3.5 sm:p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                <QrCode className="w-4 h-4 text-amber-600" />
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <QrCode className="w-4 h-4 text-[#522D60]" />
                 IMEI Numbers (Optional)
               </span>
               <span className="text-[11px] text-slate-400">
-                Optional · Scan QR / Barcode
+                Scan or type IMEI
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700">IMEI 1</label>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">IMEI 1</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     maxLength={18}
                     placeholder="Enter or scan IMEI 1"
-                    className="w-full font-mono text-base tracking-wider rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 shadow-2xs"
+                    className="w-full h-[42px] font-mono text-sm rounded-xl border border-slate-200 bg-white px-3.5 text-slate-900 outline-none focus:border-[#522D60] focus:ring-2 focus:ring-[#522D60]/15"
                     value={formData.imei1}
                     onChange={e => setFormData({...formData, imei1: e.target.value})}
                   />
@@ -561,21 +854,21 @@ export default function PurchaseMobilePage() {
                     type="button"
                     title="Scan IMEI 1 Barcode / QR"
                     onClick={() => { setActiveScanField('imei1'); setScannerOpen(true); }}
-                    className="px-3 py-2.5 border border-slate-300 rounded-xl hover:bg-amber-50 hover:border-amber-400 text-amber-700 bg-white transition-all active:scale-95 shrink-0 shadow-2xs flex items-center justify-center"
+                    className="h-[42px] px-3 border border-slate-200 rounded-xl hover:bg-slate-100 text-[#522D60] bg-white transition-all active:scale-95 shrink-0 flex items-center justify-center cursor-pointer"
                   >
-                    <QrCode className="w-5 h-5 stroke-[2.2]" />
+                    <QrCode className="w-4 h-4" />
                   </button>
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700">IMEI 2</label>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">IMEI 2</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     maxLength={18}
                     placeholder="Enter or scan IMEI 2"
-                    className="w-full font-mono text-base tracking-wider rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 shadow-2xs"
+                    className="w-full h-[42px] font-mono text-sm rounded-xl border border-slate-200 bg-white px-3.5 text-slate-900 outline-none focus:border-[#522D60] focus:ring-2 focus:ring-[#522D60]/15"
                     value={formData.imei2}
                     onChange={e => setFormData({...formData, imei2: e.target.value})}
                   />
@@ -583,26 +876,27 @@ export default function PurchaseMobilePage() {
                     type="button"
                     title="Scan IMEI 2 Barcode / QR"
                     onClick={() => { setActiveScanField('imei2'); setScannerOpen(true); }}
-                    className="px-3 py-2.5 border border-slate-300 rounded-xl hover:bg-amber-50 hover:border-amber-400 text-amber-700 bg-white transition-all active:scale-95 shrink-0 shadow-2xs flex items-center justify-center"
+                    className="h-[42px] px-3 border border-slate-200 rounded-xl hover:bg-slate-100 text-[#522D60] bg-white transition-all active:scale-95 shrink-0 flex items-center justify-center cursor-pointer"
                   >
-                    <QrCode className="w-5 h-5 stroke-[2.2]" />
+                    <QrCode className="w-4 h-4" />
                   </button>
                 </div>
               </div>
             </div>
           </div>
           
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-500">Notes</label>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Notes (Optional)</label>
             <textarea
               rows={2}
-              className="w-full rounded-xl border border-primary-500/20 bg-white/5 px-4 py-2.5 text-slate-900 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20"
+              placeholder="Any additional notes..."
+              className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-[#522D60] focus:ring-2 focus:ring-[#522D60]/15"
               value={formData.notes}
               onChange={e => setFormData({...formData, notes: e.target.value})}
             />
           </div>
 
-          <div className="pt-4 flex justify-end gap-3">
+          <div className="pt-2 flex justify-end gap-3">
             <Button type="button" variant="ghost" disabled={isSubmitting} onClick={() => setIsModalOpen(false)}>
               Cancel
             </Button>

@@ -4,12 +4,14 @@ import { db } from '../lib/firebase';
 import { Button } from '../components/ui/Button';
 import { Select } from '../components/ui/Select';
 import { PrintPromptModal } from '../components/ui/PrintPromptModal';
+import { BarcodeScanner } from '../components/BarcodeScanner';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { isDocForShop } from '../utils/multiTenantService';
 import { format } from 'date-fns';
 import { generateBillNumber } from '../utils/printBill';
 import { playSuccessSound, playErrorSound } from '../utils/soundEffects';
+import { QrCode } from 'lucide-react';
 
 const COMPANY_OPTIONS = [
   { value: 'Samsung', label: 'Samsung' },
@@ -40,6 +42,15 @@ const PAYMENT_OPTIONS = [
   { value: 'Udhar', label: 'Udhar (Khata)' },
 ];
 
+const WARRANTY_PRESETS = [
+  { key: 'none', label: 'No Warranty', days: 0, printLabel: 'No Warranty' },
+  { key: '3d', label: '3 Days Check', days: 3, printLabel: '3 Days Check Warranty' },
+  { key: '7d', label: '7 Days Check', days: 7, printLabel: '7 Days Check Warranty' },
+  { key: '15d', label: '15 Days', days: 15, printLabel: '15 Days Check Warranty' },
+  { key: '1y', label: '1 Year Brand', days: 365, printLabel: '1 Year Brand Warranty' },
+  { key: 'custom', label: 'Custom Days', days: -1, printLabel: 'Custom' },
+];
+
 export default function QuickSalePage() {
   const { user, shopProfile, currentShopId } = useAuth();
   const { success, error } = useToast();
@@ -52,12 +63,19 @@ export default function QuickSalePage() {
     modelName: '',
     ramRom: '',
     condition: 'Used',
+    imei1: '',
+    imei2: '',
     supplierName: '',
     basePrice: '',
     sellPrice: '',
     paymentMethod: 'Cash',
+    warrantyKey: '3d',
+    customWarrantyDays: '',
     saleDate: format(new Date(), 'yyyy-MM-dd')
   });
+
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanTargetField, setScanTargetField] = useState<'imei1' | 'imei2'>('imei1');
 
   const [printPromptData, setPrintPromptData] = useState<{isOpen: boolean, billData: any, profit: number}>({ 
     isOpen: false, 
@@ -97,6 +115,29 @@ export default function QuickSalePage() {
   const profitNum = sellPriceNum - basePriceNum;
   const marginPct = sellPriceNum > 0 ? ((profitNum / sellPriceNum) * 100).toFixed(1) : '0';
 
+  const isImeiCheckEnabled = Boolean(shopProfile?.enableImeiCheck);
+
+  const resolveWarrantyInfo = () => {
+    if (!isImeiCheckEnabled) {
+      return {
+        warrantyDays: null,
+        warrantyLabel: '',
+      };
+    }
+    if (formData.warrantyKey === 'custom') {
+      const d = Math.max(0, parseInt(formData.customWarrantyDays, 10) || 0);
+      return {
+        warrantyDays: d,
+        warrantyLabel: d > 0 ? `${d} Days Check Warranty` : 'No Warranty',
+      };
+    }
+    const found = WARRANTY_PRESETS.find(p => p.key === formData.warrantyKey) || WARRANTY_PRESETS[0];
+    return {
+      warrantyDays: found.days,
+      warrantyLabel: found.printLabel,
+    };
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (loading || isSubmittingRef.current) return;
@@ -129,6 +170,8 @@ export default function QuickSalePage() {
           ? (khataCustomers.find(c => c.id === selectedKhataId)?.name || 'Khata Customer') 
           : 'Walk-in Customer');
 
+      const { warrantyDays, warrantyLabel } = resolveWarrantyInfo();
+
       // Generate sequential bill number
       let billNumber = '';
       try {
@@ -158,6 +201,10 @@ export default function QuickSalePage() {
         customerName: resolvedCustomerName,
         customerPhone: formData.customerPhone.trim(),
         paymentMethod: formData.paymentMethod,
+        warrantyDays,
+        warrantyLabel,
+        imei1: formData.imei1.trim(),
+        imei2: formData.imei2.trim(),
         khataCustomerId: formData.paymentMethod === 'Udhar' ? selectedKhataId : null,
         khataCustomerName: formData.paymentMethod === 'Udhar' ? khataCustomers.find(c => c.id === selectedKhataId)?.name : null,
         items: [{
@@ -165,6 +212,10 @@ export default function QuickSalePage() {
           company: resolvedCompany,
           ramRom: formData.ramRom.trim(),
           condition: formData.condition,
+          imei1: formData.imei1.trim(),
+          imei2: formData.imei2.trim(),
+          warrantyDays,
+          warrantyLabel,
           supplierName: formData.supplierName.trim(),
           basePrice: basePriceNum,
           sellPrice: sellPriceNum,
@@ -197,6 +248,10 @@ export default function QuickSalePage() {
         modelName: formData.modelName.trim(),
         ramRom: formData.ramRom.trim(),
         condition: formData.condition,
+        imei1: formData.imei1.trim(),
+        imei2: formData.imei2.trim(),
+        warrantyDays,
+        warrantyLabel,
         supplierName: formData.supplierName.trim(),
         supplier: formData.supplierName.trim(),
         customerName: resolvedCustomerName,
@@ -227,6 +282,8 @@ export default function QuickSalePage() {
         brand: resolvedCompany,
         ramRom: formData.ramRom.trim(),
         condition: formData.condition,
+        imei1: formData.imei1.trim(),
+        imei2: formData.imei2.trim(),
         supplier: formData.supplierName.trim(),
         basePrice: basePriceNum,
         quantity: 0,
@@ -293,10 +350,14 @@ export default function QuickSalePage() {
         modelName: '',
         ramRom: '',
         condition: 'Used',
+        imei1: '',
+        imei2: '',
         supplierName: '',
         basePrice: '',
         sellPrice: '',
         paymentMethod: 'Cash',
+        warrantyKey: '3d',
+        customWarrantyDays: '',
         saleDate: format(new Date(), 'yyyy-MM-dd')
       });
       setSelectedKhataId('');
@@ -432,27 +493,93 @@ export default function QuickSalePage() {
               </label>
               <Select
                 value={formData.condition}
-                onChange={(e) => setFormData({ ...formData, condition: e.target.value })}
+                onChange={(e) => {
+                  const nextCond = e.target.value;
+                  setFormData({
+                    ...formData,
+                    condition: nextCond,
+                    warrantyKey: nextCond === 'New' ? '1y' : formData.warrantyKey
+                  });
+                }}
                 options={CONDITION_OPTIONS}
                 className="text-xs font-semibold py-2.5"
               />
             </div>
           </div>
 
-          {/* Row 3: Supplier Name, Base Price, Sell Price & Payment Method */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Row 2.5: Optional IMEI 1 & IMEI 2 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Supplier Name (Bought From)
+                {isImeiCheckEnabled ? 'IMEI 1 (Optional — for Bill & IMEI Check)' : 'IMEI 1 (Optional)'}
               </label>
-              <input
-                type="text"
-                placeholder="e.g. Arshad Wholesaler"
-                value={formData.supplierName}
-                onChange={e => setFormData({ ...formData, supplierName: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-[#522D60] focus:ring-1 focus:ring-[#522D60]"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  maxLength={18}
+                  placeholder="Scan or enter 15-digit IMEI 1"
+                  value={formData.imei1}
+                  onChange={e => setFormData({ ...formData, imei1: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs font-mono font-bold text-slate-900 placeholder:font-sans placeholder:font-normal placeholder:text-slate-400 outline-none focus:border-[#522D60]"
+                />
+                <button
+                  type="button"
+                  title="Scan IMEI 1"
+                  onClick={() => {
+                    setScanTargetField('imei1');
+                    setScannerOpen(true);
+                  }}
+                  className="px-3 py-2 border border-slate-200 rounded-xl hover:bg-slate-50 text-[#522D60] cursor-pointer"
+                >
+                  <QrCode className="w-4 h-4" />
+                </button>
+              </div>
             </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                IMEI 2 (Optional)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  maxLength={18}
+                  placeholder="Scan or enter 15-digit IMEI 2"
+                  value={formData.imei2}
+                  onChange={e => setFormData({ ...formData, imei2: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs font-mono font-bold text-slate-900 placeholder:font-sans placeholder:font-normal placeholder:text-slate-400 outline-none focus:border-[#522D60]"
+                />
+                <button
+                  type="button"
+                  title="Scan IMEI 2"
+                  onClick={() => {
+                    setScanTargetField('imei2');
+                    setScannerOpen(true);
+                  }}
+                  className="px-3 py-2 border border-slate-200 rounded-xl hover:bg-slate-50 text-[#522D60] cursor-pointer"
+                >
+                  <QrCode className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Row 3: Supplier Name (when enabled), Base Price, Sell Price & Payment Method */}
+          <div className={`grid grid-cols-1 sm:grid-cols-2 ${Boolean(shopProfile?.enableSupplierKhata) ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
+            {Boolean(shopProfile?.enableSupplierKhata) && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Supplier Name (Bought From)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Arshad Wholesaler"
+                  value={formData.supplierName}
+                  onChange={e => setFormData({ ...formData, supplierName: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-xs font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-[#522D60] focus:ring-1 focus:ring-[#522D60]"
+                />
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
@@ -499,6 +626,47 @@ export default function QuickSalePage() {
               />
             </div>
           </div>
+
+          {/* Row 4: 1-Click Phone Warranty Selector (Only shown when IMEI & Warranty Check is enabled in Settings) */}
+          {isImeiCheckEnabled && (
+            <div className="space-y-2 pt-1">
+              <label className="block text-xs font-semibold text-slate-700">
+                Phone Warranty (Prints on Bill & Saved for IMEI Check)
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+                {WARRANTY_PRESETS.map((preset) => {
+                  const isSelected = formData.warrantyKey === preset.key;
+                  return (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, warrantyKey: preset.key })}
+                      className={`py-2.5 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#522D60] text-white border-[#522D60] shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {formData.warrantyKey === 'custom' && (
+                <div className="pt-1 max-w-xs">
+                  <input
+                    type="number"
+                    min="1"
+                    max="1095"
+                    placeholder="Enter custom warranty days (e.g. 10, 30)"
+                    value={formData.customWarrantyDays}
+                    onChange={e => setFormData({ ...formData, customWarrantyDays: e.target.value })}
+                    className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-xs font-bold text-slate-900 outline-none focus:border-[#522D60]"
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Conditional Udhar / Khata Customer Selection */}
           {formData.paymentMethod === 'Udhar' && (
@@ -576,6 +744,23 @@ export default function QuickSalePage() {
 
         </form>
       </div>
+
+      {/* Barcode Scanner Modal */}
+      <BarcodeScanner
+        isOpen={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={(imei) => {
+          setFormData(prev => ({ ...prev, [scanTargetField]: imei }));
+          setScannerOpen(false);
+        }}
+        onScanBoth={(imei1, imei2) => {
+          setFormData(prev => ({ ...prev, imei1, imei2 }));
+          setScannerOpen(false);
+          success(`Both IMEIs added: ${imei1} & ${imei2}`);
+        }}
+        targetField={scanTargetField}
+        title={scanTargetField === 'imei2' ? 'Scan IMEI 2' : 'Scan IMEI 1'}
+      />
 
       {/* Invoice / Print Modal */}
       <PrintPromptModal 

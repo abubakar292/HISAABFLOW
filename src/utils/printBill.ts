@@ -32,6 +32,9 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
         const displayTitle = rawModel.toLowerCase().startsWith(comp.toLowerCase())
           ? rawModel
           : `${comp} ${rawModel}`.trim();
+        const itemWarranty = shopInfo?.enableImeiCheck
+          ? (item.warrantyLabel || billData.warrantyLabel || '')
+          : '';
         return `
       <tr class="item-row">
         <td class="col-index">${i + 1}</td>
@@ -40,6 +43,7 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
           <div class="item-sub">
             ${item.ramRom ? `<span>Specs: ${item.ramRom}</span>` : ''}
             ${item.condition ? `<span>${item.ramRom ? ' • ' : ''}${item.condition}</span>` : ''}
+            ${itemWarranty ? `<span>${(item.ramRom || item.condition) ? ' • ' : ''}<strong>Warranty: ${itemWarranty}</strong></span>` : ''}
           </div>
           ${hasAnyImei && (item.imei1 || item.imei2) ? `
             <div class="mobile-imei-inline">
@@ -63,6 +67,7 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
         const displayTitle = rawModel.toLowerCase().startsWith(comp.toLowerCase())
           ? rawModel
           : `${comp} ${rawModel}`.trim();
+        const singleWarranty = shopInfo?.enableImeiCheck ? (billData.warrantyLabel || '') : '';
         return `
       <tr class="item-row">
         <td class="col-index">1</td>
@@ -71,6 +76,7 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
           <div class="item-sub">
             ${billData.ramRom ? `<span>Specs: ${billData.ramRom}</span>` : ''}
             ${billData.condition ? `<span>${billData.ramRom ? ' • ' : ''}${billData.condition}</span>` : ''}
+            ${singleWarranty ? `<span>${(billData.ramRom || billData.condition) ? ' • ' : ''}<strong>Warranty: ${singleWarranty}</strong></span>` : ''}
           </div>
           ${hasAnyImei && (billData.imei1 || billData.imei2) ? `
             <div class="mobile-imei-inline">
@@ -430,7 +436,7 @@ export function getBillHtml(billData: any, shopInfo?: any): string {
           </div>
           <div class="meta-right">
             <p><strong>Payment:</strong> ${billData.paymentMethod || 'Cash'}</p>
-            <p><strong>Store:</strong> ${currentShopName}</p>
+            ${shopInfo?.enableImeiCheck ? `<p><strong>Warranty:</strong> ${billData.warrantyLabel || billData.items?.[0]?.warrantyLabel || 'No Warranty'}</p>` : ''}
           </div>
         </div>
 

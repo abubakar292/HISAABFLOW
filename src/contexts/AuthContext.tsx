@@ -64,6 +64,8 @@ const getInitialProfile = (): ShopProfile => {
     const cachedName = localStorage.getItem('cached_shop_name');
     const cachedShort = localStorage.getItem('cached_shop_short_name');
     const cachedSub = localStorage.getItem('cached_shop_subtitle');
+    const cachedImei = localStorage.getItem('cached_enable_imei_check');
+    const cachedSupplier = localStorage.getItem('cached_enable_supplier_khata');
     if (cachedShopId && cachedName) {
       return {
         ...EMPTY_SHOP_PROFILE,
@@ -71,6 +73,8 @@ const getInitialProfile = (): ShopProfile => {
         shopName: cachedName,
         shortName: cachedShort || 'HF',
         subTitle: cachedSub || '',
+        enableImeiCheck: cachedImei === 'true',
+        enableSupplierKhata: cachedSupplier === 'true',
       };
     }
   } catch (e) {
@@ -253,6 +257,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('cached_shop_name', profile.shopName);
         localStorage.setItem('cached_shop_short_name', profile.shortName);
         if (profile.subTitle) localStorage.setItem('cached_shop_subtitle', profile.subTitle);
+        localStorage.setItem('cached_enable_imei_check', String(Boolean(profile.enableImeiCheck)));
+        localStorage.setItem('cached_enable_supplier_khata', String(Boolean(profile.enableSupplierKhata)));
       } catch (e) {
         // ignore
       }
@@ -416,6 +422,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               localStorage.setItem('cached_shop_name', next.shopName);
               localStorage.setItem('cached_shop_short_name', next.shortName);
               if (next.subTitle) localStorage.setItem('cached_shop_subtitle', next.subTitle);
+              localStorage.setItem('cached_enable_imei_check', String(Boolean(next.enableImeiCheck)));
+              localStorage.setItem('cached_enable_supplier_khata', String(Boolean(next.enableSupplierKhata)));
             } catch {}
             updateAppBranding(next.shopName, next.shortName);
             return next;
@@ -626,6 +634,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subTitle: 'Mobile Sales & Services',
       receiptNote: 'Warranty claim requires original bill slip. Thank you for your business!',
       whatsappFooter: `${cleanName} — Main Market`,
+      enableImeiCheck: false,
+      enableSupplierKhata: false,
     };
 
     setShopProfile(newProfile);
@@ -633,6 +643,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('cached_shop_id', newProfile.shopId);
       localStorage.setItem('cached_shop_name', newProfile.shopName);
       localStorage.setItem('cached_shop_short_name', newProfile.shortName);
+      localStorage.setItem('cached_enable_imei_check', 'false');
+      localStorage.setItem('cached_enable_supplier_khata', 'false');
     } catch {}
 
     setUser(firebaseUser);
@@ -699,6 +711,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('cached_shop_name');
       localStorage.removeItem('cached_shop_short_name');
       localStorage.removeItem('cached_shop_subtitle');
+      localStorage.removeItem('cached_enable_imei_check');
+      localStorage.removeItem('cached_enable_supplier_khata');
       clearAllLocalDbCaches();
     } catch (e) {
       // ignore
@@ -713,19 +727,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateProfileData = async (data: Partial<ShopProfile>) => {
     if (!user) return;
-    await updateShopProfile(user.uid, data);
+    // Optimistically update state immediately so UI/Sidebar toggles with zero delay
     setShopProfile((prev) => {
       const updated = { ...prev, ...data };
       try {
         if (updated.shopName) localStorage.setItem('cached_shop_name', updated.shopName);
         if (updated.shortName) localStorage.setItem('cached_shop_short_name', updated.shortName);
         if (updated.subTitle) localStorage.setItem('cached_shop_subtitle', updated.subTitle);
+        if (updated.enableImeiCheck !== undefined) {
+          localStorage.setItem('cached_enable_imei_check', String(Boolean(updated.enableImeiCheck)));
+        }
+        if (updated.enableSupplierKhata !== undefined) {
+          localStorage.setItem('cached_enable_supplier_khata', String(Boolean(updated.enableSupplierKhata)));
+        }
       } catch (e) {
         // ignore
       }
       updateAppBranding(updated.shopName, updated.shortName);
       return updated;
     });
+    await updateShopProfile(user.uid, data);
   };
 
   const refreshProfile = async () => {

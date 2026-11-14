@@ -15,6 +15,9 @@ import BillsHistoryPage from './pages/BillsHistoryPage';
 import ExpensesPage from './pages/ExpensesPage';
 import KhataPage from './pages/KhataPage';
 import CustomerLedgerPage from './pages/CustomerLedgerPage';
+import SuppliersPage from './pages/SuppliersPage';
+import SupplierLedgerPage from './pages/SupplierLedgerPage';
+import ImeiCheckerPage from './pages/ImeiCheckerPage';
 import InventoryValuationPage from './pages/InventoryValuationPage';
 import SettingsPage from './pages/SettingsPage';
 import SuperAdminPage from './pages/SuperAdminPage';
@@ -96,6 +99,21 @@ function AppBootstrap({ children }: { children: React.ReactNode }) {
   );
 }
 
+function OptionalFeatureRoute({
+  feature,
+  children,
+}: {
+  feature: 'enableImeiCheck' | 'enableSupplierKhata';
+  children: React.ReactNode;
+}) {
+  const { shopProfile, loading } = useAuth();
+  if (loading) return null;
+  if (!shopProfile?.[feature]) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <ToastProvider>
@@ -113,12 +131,36 @@ export default function App() {
                   <Route path="/dashboard" element={<DashboardPage />} />
                   <Route path="/purchase-mobile" element={<PurchaseMobilePage />} />
                   <Route path="/mobiles-stock" element={<MobilesStockPage />} />
+                  <Route
+                    path="/imei-checker"
+                    element={
+                      <OptionalFeatureRoute feature="enableImeiCheck">
+                        <ImeiCheckerPage />
+                      </OptionalFeatureRoute>
+                    }
+                  />
                   <Route path="/quick-sale" element={<QuickSalePage />} />
                   <Route path="/mobile-sales" element={<MobileSalesPage />} />
                   <Route path="/bills-history" element={<BillsHistoryPage />} />
                   <Route path="/expenses" element={<ExpensesPage />} />
                   <Route path="/khata" element={<KhataPage />} />
                   <Route path="/khata/:id" element={<CustomerLedgerPage />} />
+                  <Route
+                    path="/suppliers"
+                    element={
+                      <OptionalFeatureRoute feature="enableSupplierKhata">
+                        <SuppliersPage />
+                      </OptionalFeatureRoute>
+                    }
+                  />
+                  <Route
+                    path="/suppliers/:id"
+                    element={
+                      <OptionalFeatureRoute feature="enableSupplierKhata">
+                        <SupplierLedgerPage />
+                      </OptionalFeatureRoute>
+                    }
+                  />
                   <Route path="/inventory-valuation" element={<InventoryValuationPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
                   <Route path="/super-admin" element={<SuperAdminPage />} />

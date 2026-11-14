@@ -609,6 +609,113 @@ export default function SettingsPage() {
         </form>
       </div>
 
+      {/* ── OPTIONAL STORE MODULES (LIVE SIDEBAR TOGGLES) ── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-purple-50 text-[#522D60] flex items-center justify-center font-bold">
+              <Store className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="font-bold text-gray-900 text-sm">Optional Store Features</h2>
+              <p className="text-[11px] text-gray-400">
+                Disabled by default for new accounts — toggle on to show live in your sidebar menu
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="divide-y divide-gray-100">
+          {/* Toggle 1: IMEI & Warranty Check */}
+          <div className="p-4 sm:p-5 flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-bold text-gray-900">IMEI & Warranty Check</p>
+                <span
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    Boolean(shopProfile.enableImeiCheck)
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-gray-100 text-gray-500 border-gray-200'
+                  }`}
+                >
+                  {Boolean(shopProfile.enableImeiCheck) ? 'Active in Sidebar' : 'Disabled'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Instant IMEI verification, purchase source lookup, and automatic warranty countdown
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                const next = !Boolean(shopProfile.enableImeiCheck);
+                await updateProfileData({ enableImeiCheck: next });
+                if (next) {
+                  success('IMEI & Warranty Check enabled in sidebar.');
+                } else {
+                  toast('IMEI & Warranty Check hidden from sidebar.', 'info');
+                }
+              }}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                Boolean(shopProfile.enableImeiCheck) ? 'bg-[#522D60]' : 'bg-gray-200'
+              }`}
+              role="switch"
+              aria-checked={Boolean(shopProfile.enableImeiCheck)}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                  Boolean(shopProfile.enableImeiCheck) ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* Toggle 2: Supplier Khata */}
+          <div className="p-4 sm:p-5 flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-bold text-gray-900">Supplier Khata</p>
+                <span
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    Boolean(shopProfile.enableSupplierKhata)
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-gray-100 text-gray-500 border-gray-200'
+                  }`}
+                >
+                  {Boolean(shopProfile.enableSupplierKhata) ? 'Active in Sidebar' : 'Disabled'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Track wholesale supplier credit purchases, payments, and payable ledgers
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                const next = !Boolean(shopProfile.enableSupplierKhata);
+                await updateProfileData({ enableSupplierKhata: next });
+                if (next) {
+                  success('Supplier Khata enabled in sidebar.');
+                } else {
+                  toast('Supplier Khata hidden from sidebar.', 'info');
+                }
+              }}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                Boolean(shopProfile.enableSupplierKhata) ? 'bg-[#522D60]' : 'bg-gray-200'
+              }`}
+              role="switch"
+              aria-checked={Boolean(shopProfile.enableSupplierKhata)}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                  Boolean(shopProfile.enableSupplierKhata) ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* ── 2. AUDIO & SOUND EFFECTS ── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
         <div className="px-5 py-3.5 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">

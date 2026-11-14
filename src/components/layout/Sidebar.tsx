@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, ShoppingCart, Smartphone, TrendingUp, Receipt, 
-  ReceiptText, BookOpen, Package, Settings, X, ShieldCheck, Zap
+  ReceiptText, BookOpen, Package, Settings, X, ShieldCheck, Zap, Truck
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -13,6 +13,9 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const location = useLocation();
   const { user, shopProfile } = useAuth();
   const isSuperAdmin = (user?.email || '').toLowerCase() === 'threadsandtailsshop@gmail.com';
+
+  const showImeiCheck = Boolean(shopProfile.enableImeiCheck);
+  const showSupplierKhata = Boolean(shopProfile.enableSupplierKhata);
 
   const sections = [
     {
@@ -26,6 +29,9 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       items: [
         { path: '/purchase-mobile', icon: ShoppingCart, label: 'Purchase Mobile' },
         { path: '/mobiles-stock', icon: Smartphone, label: 'Mobiles Stock' },
+        ...(showImeiCheck
+          ? [{ path: '/imei-checker', icon: ShieldCheck, label: 'IMEI & Warranty Check' }]
+          : []),
       ]
     },
     {
@@ -36,6 +42,9 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         { path: '/bills-history', icon: Receipt, label: 'Bills & Invoices' },
         { path: '/expenses', icon: ReceiptText, label: 'Shop Expenses' },
         { path: '/khata', icon: BookOpen, label: 'Customer Khata' },
+        ...(showSupplierKhata
+          ? [{ path: '/suppliers', icon: Truck, label: 'Supplier Khata' }]
+          : []),
       ]
     },
     {

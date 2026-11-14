@@ -334,6 +334,8 @@ export default function MobileSalesPage() {
       imei2: sale.imei2,
       sellPrice: sale.sellPrice,
       paymentMethod: sale.paymentMethod,
+      warrantyDays: sale.warrantyDays ?? 0,
+      warrantyLabel: sale.warrantyLabel || 'No Warranty',
       date: sale.date || sale.createdAt,
       items: [{
         modelName: sale.itemName,
@@ -341,6 +343,8 @@ export default function MobileSalesPage() {
         imei1: sale.imei1,
         imei2: sale.imei2,
         sellPrice: sale.sellPrice,
+        warrantyDays: sale.warrantyDays ?? 0,
+        warrantyLabel: sale.warrantyLabel || 'No Warranty',
       }]
     });
   };
@@ -357,6 +361,8 @@ export default function MobileSalesPage() {
       imei2: sale.imei2,
       sellPrice: sale.sellPrice,
       paymentMethod: sale.paymentMethod,
+      warrantyDays: sale.warrantyDays ?? 0,
+      warrantyLabel: sale.warrantyLabel || 'No Warranty',
       date: sale.date || sale.createdAt,
       items: [{
         modelName: sale.itemName,
@@ -364,6 +370,8 @@ export default function MobileSalesPage() {
         imei1: sale.imei1,
         imei2: sale.imei2,
         sellPrice: sale.sellPrice,
+        warrantyDays: sale.warrantyDays ?? 0,
+        warrantyLabel: sale.warrantyLabel || 'No Warranty',
       }]
     });
   };
@@ -751,7 +759,7 @@ export default function MobileSalesPage() {
                         <div className="font-semibold text-slate-900 text-sm">
                           {s.itemName || s.name || s.modelName}
                         </div>
-                        {(s.supplierName || s.supplier) && (
+                        {Boolean(shopProfile?.enableSupplierKhata) && (s.supplierName || s.supplier) && (
                           <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
                             <span>Supplier:</span>
                             <span className="font-semibold text-slate-700">{s.supplierName || s.supplier}</span>

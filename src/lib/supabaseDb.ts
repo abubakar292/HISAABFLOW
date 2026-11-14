@@ -578,7 +578,17 @@ function schedulePersistCollection(colName: string) {
     await persistCollectionToSupabase(colName, map);
     if (
       typeof window !== 'undefined' &&
-      ['mobiles', 'sales', 'bills', 'expenses', 'khata', 'khataTransactions'].includes(colName)
+      [
+        'mobiles',
+        'sales',
+        'bills',
+        'expenses',
+        'khata',
+        'khataTransactions',
+        'suppliers',
+        'supplierTransactions',
+        'imeiClaims',
+      ].includes(colName)
     ) {
       window.dispatchEvent(
         new CustomEvent('hisaabflow_shop_data_changed', { detail: { collection: colName } })
@@ -1115,6 +1125,9 @@ export async function purgeAllShopDataForAccount(
     'bills',
     'khata',
     'khataTransactions',
+    'suppliers',
+    'supplierTransactions',
+    'imeiClaims',
     'expenses',
     'backups',
     'users',

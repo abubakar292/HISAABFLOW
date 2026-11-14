@@ -96,6 +96,23 @@ export function Navbar({ onMenuClick, showMenuButton }: NavbarProps) {
       {/* Right actions */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
 
+        {/* Quick 1-Click IMEI Warranty & Claim Checker Button (Only shown when enabled in Settings) */}
+        {!isSuperAdminRoute && Boolean(shopProfile?.enableImeiCheck) && (
+          <button
+            type="button"
+            onClick={() => navigate('/imei-checker')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer whitespace-nowrap ${
+              location.pathname === '/imei-checker'
+                ? 'bg-[#522D60] text-white border-[#522D60] shadow-xs'
+                : 'bg-[#FAF5FC] text-[#522D60] border-[#522D60]/20 hover:bg-[#F3E8FA]'
+            }`}
+            title="Instant IMEI Warranty & Claim Checker"
+          >
+            <ShieldCheck className="w-4 h-4 shrink-0" />
+            <span className="hidden sm:inline">IMEI Check</span>
+          </button>
+        )}
+
         {/* Low Stock Alerts Notification Bell - ONLY shown in Shop POS, NEVER in Super Admin */}
         {!isSuperAdminRoute && (
           <div className="relative">

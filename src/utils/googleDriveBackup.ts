@@ -21,7 +21,17 @@ export async function compileShopBackupData(shopProfile: ShopProfile) {
   const shopId = shopProfile.shopId;
   const cleanEmail = (shopProfile.ownerEmail || '').toLowerCase().trim();
   const ownerUid = shopProfile.ownerUid || '';
-  const collections = ['mobiles', 'sales', 'bills', 'khata', 'khataTransactions', 'expenses'];
+  const collections = [
+    'mobiles',
+    'sales',
+    'bills',
+    'khata',
+    'khataTransactions',
+    'suppliers',
+    'supplierTransactions',
+    'imeiClaims',
+    'expenses',
+  ];
   const archive: Record<string, any[]> = {};
   let totalRecords = 0;
 
