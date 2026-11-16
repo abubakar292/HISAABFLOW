@@ -12,7 +12,7 @@ import { Modal } from '../components/ui/Modal';
 import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../contexts/AuthContext';
 import { isDocForShop } from '../utils/multiTenantService';
-import { getWhatsAppKhataUrl, getWhatsAppTransactionUrl } from '../config/shopConfig';
+import { getWhatsAppKhataUrl, getWhatsAppTransactionUrl, convertShopNameToUrdu, convertTextToUrdu } from '../config/shopConfig';
 
 export default function CustomerLedgerPage() {
   const { id } = useParams();
@@ -975,25 +975,31 @@ export default function CustomerLedgerPage() {
               </div>
 
               {/* WhatsApp Share Button if customer has phone */}
-              {customer?.phone && (
-                <a
-                  href={`https://wa.me/${customer.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                    `*${shopProfile?.shopName || 'HISAABFLOW'} - Account Statement*\n` +
-                    `Customer: ${customer.name}\n` +
-                    `Period: ${reportStartDate || 'Start'} to ${reportEndDate || 'Today'}\n\n` +
-                    `🔴 *Total Given (Udhar):* Rs. ${reportTotalGiven.toLocaleString()}\n` +
-                    `🟢 *Total Got (Received):* Rs. ${reportTotalGot.toLocaleString()}\n` +
-                    `📌 *Current Balance:* Rs. ${(customer.totalBalance || 0).toLocaleString()}\n\n` +
-                    `Thank you for your business!`
-                  )}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-xs"
-                >
-                  <MessageCircle className="w-3.5 h-3.5" />
-                  <span>Send Report on WhatsApp</span>
-                </a>
-              )}
+              {customer?.phone && (() => {
+                const rawPhone = customer.phone.replace(/[^0-9]/g, '');
+                const formattedWaPhone = rawPhone.startsWith('0') ? '92' + rawPhone.slice(1) : rawPhone;
+                const urduShop = convertShopNameToUrdu(shopProfile?.shopName);
+                const urduCustomer = convertTextToUrdu(customer.name) || customer.name;
+                return (
+                  <a
+                    href={`https://wa.me/${formattedWaPhone}?text=${encodeURIComponent(
+                      `السلام علیکم ${urduCustomer} صاحب،\n\n` +
+                      `*${urduShop}* — کھاتہ سٹیٹمنٹ:\n` +
+                      `📅 مدت: *${reportStartDate || 'شروع'} تا ${reportEndDate || 'آج'}*\n\n` +
+                      `🔴 کل ادھار (دی گئی رقم): *Rs. ${reportTotalGiven.toLocaleString()}*\n` +
+                      `🟢 کل وصولی (ملی ہوئی رقم): *Rs. ${reportTotalGot.toLocaleString()}*\n` +
+                      `📌 موجودہ کل بقایا: *Rs. ${(customer.totalBalance || 0).toLocaleString()}*\n\n` +
+                      `شکریہ!\n*${urduShop}*`
+                    )}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-xs"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    <span>Send Report on WhatsApp</span>
+                  </a>
+                );
+              })()}
             </div>
           )}
 
