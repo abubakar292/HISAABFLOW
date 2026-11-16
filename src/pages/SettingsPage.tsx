@@ -5,7 +5,7 @@ import {
   Store, User, LogOut, Download, 
   RefreshCw, HardDrive, Cloud, AlertTriangle,
   Upload, Trash2, Image as ImageIcon, Camera, CheckCircle2, Eye, Receipt,
-  Volume2, VolumeX, Bell, Lock, KeyRound
+  Volume2, VolumeX, Bell, Lock, KeyRound, CreditCard, Clock, ShieldCheck, Calendar
 } from 'lucide-react';
 import { useToast } from '../contexts/ToastContext';
 import { Modal } from '../components/ui/Modal';
@@ -29,6 +29,7 @@ import {
   playDeleteSound, 
   playScanSound 
 } from '../utils/soundEffects';
+import { evaluateSubscriptionAccess } from '../utils/multiTenantService';
 import { format } from 'date-fns';
 
 export default function SettingsPage() {
@@ -37,7 +38,8 @@ export default function SettingsPage() {
     logout, 
     shopProfile, 
     updateProfileData, 
-    connectGoogleDrive 
+    connectGoogleDrive,
+    isMasterAdmin
   } = useAuth();
   const { success, error, toast } = useToast();
   
@@ -293,6 +295,36 @@ export default function SettingsPage() {
     }
   };
 
+  // Compute Subscription Remaining Days & Validity Details
+  const subEval = evaluateSubscriptionAccess(shopProfile, isMasterAdmin);
+  const nowMs = Date.now();
+  const isPaidPlan = subEval.effectiveStatus === 'active' && Boolean(shopProfile.subscriptionEndsAt);
+  const isTrialPlan = subEval.effectiveStatus === 'trial' && Boolean(shopProfile.trialEndsAt);
+  const isFreePlan = subEval.effectiveStatus === 'free';
+
+  const endTimestampMs = isPaidPlan
+    ? new Date(shopProfile.subscriptionEndsAt!).getTime()
+    : isTrialPlan
+    ? new Date(shopProfile.trialEndsAt!).getTime()
+    : 0;
+  const startTimestampMs = isPaidPlan && shopProfile.subscriptionStartedAt
+    ? new Date(shopProfile.subscriptionStartedAt).getTime()
+    : isTrialPlan && shopProfile.trialStartedAt
+    ? new Date(shopProfile.trialStartedAt).getTime()
+    : 0;
+
+  const remainingMs = Math.max(0, endTimestampMs - nowMs);
+  const remainingDaysCount = Math.ceil(remainingMs / (1000 * 60 * 60 * 24));
+  const totalCycleDays =
+    startTimestampMs > 0 && endTimestampMs > startTimestampMs
+      ? Math.max(1, Math.round((endTimestampMs - startTimestampMs) / (1000 * 60 * 60 * 24)))
+      : isTrialPlan
+      ? 2
+      : 30;
+  const remainingProgressPct = isFreePlan
+    ? 100
+    : Math.min(100, Math.max(6, Math.round((remainingDaysCount / totalCycleDays) * 100)));
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-16">
       {/* Page Header */}
@@ -301,10 +333,116 @@ export default function SettingsPage() {
           <h1 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight">
             Store Settings
           </h1>
-          <p className="text-xs text-gray-400 mt-0.5">
-            Configure store profile, contact information, and data backups.
-          </p>
         </div>
+      </div>
+
+      {/* ── SUBSCRIPTION PLAN & REMAINING DAYS CARD ── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20 flex items-center justify-center shrink-0">
+              <CreditCard className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm sm:text-base font-bold text-gray-900">
+                  Subscription Plan
+                </h2>
+                {isPaidPlan && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    Active Monthly Plan
+                  </span>
+                )}
+                {isTrialPlan && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20">
+                    <Clock className="w-3 h-3 text-[#522D60]" />
+                    2-Day Free Trial
+                  </span>
+                )}
+                {isFreePlan && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                    Free Access
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs text-gray-500">
+                {isPaidPlan && shopProfile.subscriptionEndsAt && (
+                  <span className="inline-flex items-center gap-1.5 tabular-nums">
+                    <Calendar className="w-3.5 h-3.5 text-[#522D60]" />
+                    Valid until{' '}
+                    <strong className="text-gray-900">
+                      {format(new Date(shopProfile.subscriptionEndsAt), 'dd MMM yyyy')}
+                    </strong>
+                  </span>
+                )}
+                {isTrialPlan && shopProfile.trialEndsAt && (
+                  <span className="inline-flex items-center gap-1.5 tabular-nums">
+                    <Calendar className="w-3.5 h-3.5 text-[#522D60]" />
+                    Trial ends{' '}
+                    <strong className="text-gray-900">
+                      {format(new Date(shopProfile.trialEndsAt), 'dd MMM yyyy, hh:mm a')}
+                    </strong>
+                  </span>
+                )}
+                {isFreePlan && (
+                  <span className="text-gray-500 font-medium">
+                    Unlimited validity • No monthly expiry
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Remaining Days Counter */}
+          <div className="flex items-center justify-between sm:justify-end gap-4 px-4 py-3 rounded-2xl bg-[#FAF5FC] border border-[#522D60]/20 shrink-0">
+            <div>
+              <p className="text-[11px] font-semibold text-gray-500">Remaining Validity</p>
+              {isFreePlan ? (
+                <p
+                  className="text-lg sm:text-xl font-black text-[#522D60] tabular-nums"
+                  style={{ fontFamily: 'Sora, sans-serif' }}
+                >
+                  Unlimited
+                </p>
+              ) : (
+                <div className="flex items-baseline gap-1.5">
+                  <span
+                    className="text-2xl sm:text-3xl font-black text-[#522D60] tabular-nums"
+                    style={{ fontFamily: 'Sora, sans-serif' }}
+                  >
+                    {remainingDaysCount}
+                  </span>
+                  <span className="text-xs font-bold text-[#522D60]">
+                    {remainingDaysCount === 1 ? 'Day Remaining' : 'Days Remaining'}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Clean Progress Bar for Paid or Trial Plan */}
+        {(isPaidPlan || isTrialPlan) && (
+          <div className="mt-4 pt-3.5 border-t border-gray-100 space-y-1.5">
+            <div className="flex items-center justify-between text-[11px] text-gray-500 tabular-nums">
+              <span>
+                Plan Duration: <strong className="text-gray-800">{totalCycleDays} Days</strong>
+              </span>
+              <span className="font-bold text-[#522D60]">
+                {remainingDaysCount} of {totalCycleDays} days left
+              </span>
+            </div>
+            <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[#522D60] rounded-full transition-all duration-500"
+                style={{ width: `${remainingProgressPct}%` }}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Hidden File Inputs */}

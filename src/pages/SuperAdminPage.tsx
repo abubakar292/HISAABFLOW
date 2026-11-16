@@ -9,7 +9,8 @@ import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { 
   ShieldCheck, Users, Search, RefreshCw, UserPlus, Mail, Store, CheckCircle, AlertTriangle, Trash2,
-  Cloud, Database, Copy, Check, ExternalLink, Key, CheckCircle2, XCircle, HardDrive
+  Cloud, Database, Copy, Check, ExternalLink, Key, CheckCircle2, XCircle, HardDrive,
+  CreditCard, Clock, Eye, Sparkles, Building2, Smartphone, Gift, Lock
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { parseDateSafe } from '../utils/dateUtils';
@@ -26,7 +27,14 @@ import {
   PERMANENT_DRIVE_APPS_SCRIPT
 } from '../utils/googleAuthHelper';
 import { syncShopBackupToMasterCloud } from '../utils/googleDriveBackup';
-import { EMPTY_SHOP_PROFILE } from '../utils/multiTenantService';
+import {
+  EMPTY_SHOP_PROFILE,
+  DEFAULT_SUBSCRIPTION_SETTINGS,
+  SubscriptionSettings,
+  SubscriptionRequest,
+  SubscriptionStatus,
+  evaluateSubscriptionAccess,
+} from '../utils/multiTenantService';
 import { getInitials } from '../utils/brandIdentity';
 
 interface ShopTenant {
@@ -42,6 +50,10 @@ interface ShopTenant {
   bytesUsed: number;
   recordsCount: number;
   autoBackupEnabled?: boolean;
+  subscriptionStatus: SubscriptionStatus;
+  trialEndsAt?: string;
+  subscriptionEndsAt?: string;
+  trialUsed?: boolean;
 }
 
 const FREE_TIER_LIMIT_MB = 500;
@@ -101,6 +113,16 @@ export default function SuperAdminPage() {
   const [syncingSql, setSyncingSql] = useState(false);
   const [totalDbBytes, setTotalDbBytes] = useState(0);
   const [totalDbRecords, setTotalDbRecords] = useState(0);
+
+  // Manage Subscriptions state
+  const [activeTab, setActiveTab] = useState<'accounts' | 'subscriptions'>('accounts');
+  const [subSettings, setSubSettings] = useState<SubscriptionSettings>(DEFAULT_SUBSCRIPTION_SETTINGS);
+  const [savingSubSettings, setSavingSubSettings] = useState(false);
+  const [subRequests, setSubRequests] = useState<SubscriptionRequest[]>([]);
+  const [requestFilter, setRequestFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
+  const [selectedRequestModal, setSelectedRequestModal] = useState<SubscriptionRequest | null>(null);
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
+  const [togglingSubTenantId, setTogglingSubTenantId] = useState<string | null>(null);
 
   useEffect(() => {
     setDriveStatus('checking');
@@ -250,8 +272,46 @@ export default function SuperAdminPage() {
       )
     );
 
+    // Real-time listener on subscription settings (system/subscription_settings)
+    const unsubSubSettings = onSnapshot(
+      doc(db, 'system', 'subscription_settings'),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as Partial<SubscriptionSettings>;
+          setSubSettings({
+            ...DEFAULT_SUBSCRIPTION_SETTINGS,
+            ...data,
+            monthlyPricePkr: Number(data.monthlyPricePkr) > 0 ? Number(data.monthlyPricePkr) : 1999,
+          });
+        }
+      },
+      () => {}
+    );
+
+    // Real-time listener on subscriptionRequests collection
+    const unsubSubRequests = onSnapshot(
+      collection(db, 'subscriptionRequests'),
+      (snap) => {
+        const list: SubscriptionRequest[] = [];
+        snap.forEach((d) => {
+          const data = d.data() as SubscriptionRequest;
+          list.push({
+            ...data,
+            id: d.id,
+          });
+        });
+        list.sort(
+          (a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime()
+        );
+        setSubRequests(list);
+      },
+      () => {}
+    );
+
     return () => {
       unsubs.forEach((u) => u());
+      unsubSubSettings();
+      unsubSubRequests();
     };
   }, [user, isMasterAdmin]);
 
@@ -390,6 +450,8 @@ export default function SuperAdminPage() {
         const resolvedUid = authUser?.id || userData.uid || shopData.ownerUid || docId;
         const resolvedShopId = shopData.shopId || `shop_${resolvedUid.slice(0, 8)}`;
 
+        const rawSubStatus = (shopData.subscriptionStatus || userData.subscriptionStatus || 'free') as SubscriptionStatus;
+
         const candidate: ShopTenant = {
           id: docId,
           ownerUid: resolvedUid,
@@ -403,6 +465,10 @@ export default function SuperAdminPage() {
           bytesUsed: 0,
           recordsCount: 0,
           autoBackupEnabled: Boolean(shopData.autoBackupEnabled || userData.autoBackupEnabled),
+          subscriptionStatus: isMaster ? 'free' : rawSubStatus,
+          trialEndsAt: shopData.trialEndsAt || userData.trialEndsAt || undefined,
+          subscriptionEndsAt: shopData.subscriptionEndsAt || userData.subscriptionEndsAt || undefined,
+          trialUsed: Boolean(shopData.trialUsed || userData.trialUsed),
         };
 
         if (emailMap.has(email)) {
@@ -680,6 +746,8 @@ export default function SuperAdminPage() {
         ownerName: newOwnerName.trim() || 'Shop Owner',
         createdAt: joinDateObj,
         status: 'active',
+        subscriptionStatus: 'unselected' as SubscriptionStatus,
+        trialUsed: false,
         registeredByAdmin: true,
       };
 
@@ -692,6 +760,8 @@ export default function SuperAdminPage() {
         role: 'client',
         createdAt: joinDateObj,
         status: 'active',
+        subscriptionStatus: 'unselected',
+        trialUsed: false,
         registeredByAdmin: true,
       }, { merge: true });
 
@@ -708,27 +778,272 @@ export default function SuperAdminPage() {
     }
   };
 
+  // --- SUBSCRIPTION MANAGEMENT HANDLERS ---
+
+  const updateTenantSubscriptionDocs = async (
+    tenantId: string,
+    ownerUid: string | undefined,
+    ownerEmail: string | undefined,
+    subFields: Record<string, any>
+  ) => {
+    const cleanEmail = (ownerEmail || '').toLowerCase().trim();
+    const payload = {
+      ...subFields,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const promises: Promise<any>[] = [
+      setDoc(doc(db, 'shops', tenantId), payload, { merge: true }).catch(() => {}),
+      setDoc(doc(db, 'users', tenantId), payload, { merge: true }).catch(() => {}),
+    ];
+
+    if (ownerUid && ownerUid !== tenantId) {
+      promises.push(setDoc(doc(db, 'shops', ownerUid), payload, { merge: true }).catch(() => {}));
+      promises.push(setDoc(doc(db, 'users', ownerUid), payload, { merge: true }).catch(() => {}));
+    }
+
+    if (cleanEmail) {
+      try {
+        const shopsQ = query(collection(db, 'shops'), where('ownerEmail', '==', cleanEmail));
+        const shopsSnap = await getDocs(shopsQ);
+        shopsSnap.forEach((d) => {
+          promises.push(setDoc(doc(db, 'shops', d.id), payload, { merge: true }).catch(() => {}));
+        });
+      } catch {}
+    }
+
+    await Promise.all(promises);
+  };
+
+  const handleToggleFreeAccess = async (tenant: ShopTenant) => {
+    if (togglingSubTenantId) return;
+    setTogglingSubTenantId(tenant.id);
+    try {
+      const currentlyFree = tenant.subscriptionStatus === 'free';
+      const nextStatus: SubscriptionStatus = currentlyFree
+        ? tenant.trialUsed
+          ? 'expired'
+          : 'unselected'
+        : 'free';
+
+      await updateTenantSubscriptionDocs(tenant.id, tenant.ownerUid, tenant.ownerEmail, {
+        subscriptionStatus: nextStatus,
+        ...(nextStatus === 'free' ? { rejectionReason: '' } : {}),
+      });
+
+      setTenants((prev) =>
+        prev.map((t) =>
+          t.id === tenant.id ? { ...t, subscriptionStatus: nextStatus } : t
+        )
+      );
+
+      if (nextStatus === 'free') {
+        success(`${tenant.shopName} is now set to Free Access! Subscription page is hidden for this user.`);
+      } else {
+        success(`${tenant.shopName} switched to Paid mode. Subscription page will now appear for this user.`);
+      }
+    } catch (err: any) {
+      toast('Failed to update user subscription mode', 'error');
+    } finally {
+      setTogglingSubTenantId(null);
+    }
+  };
+
+  const handleGrantDaysToTenant = async (tenant: ShopTenant, days: number) => {
+    if (togglingSubTenantId) return;
+    setTogglingSubTenantId(tenant.id);
+    try {
+      const now = new Date();
+      const endsAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+
+      await updateTenantSubscriptionDocs(tenant.id, tenant.ownerUid, tenant.ownerEmail, {
+        subscriptionStatus: 'active',
+        subscriptionStartedAt: now.toISOString(),
+        subscriptionEndsAt: endsAt.toISOString(),
+        subscriptionPlanPrice: subSettings.monthlyPricePkr || 1999,
+        rejectionReason: '',
+      });
+
+      setTenants((prev) =>
+        prev.map((t) =>
+          t.id === tenant.id
+            ? {
+                ...t,
+                subscriptionStatus: 'active',
+                subscriptionEndsAt: endsAt.toISOString(),
+              }
+            : t
+        )
+      );
+
+      success(`Activated ${days}-day subscription for ${tenant.shopName}!`);
+    } catch {
+      toast('Failed to grant subscription days', 'error');
+    } finally {
+      setTogglingSubTenantId(null);
+    }
+  };
+
+  const handleSaveSubscriptionSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanPrice = Math.max(1, Math.round(Number(subSettings.monthlyPricePkr) || 1999));
+    setSavingSubSettings(true);
+    try {
+      const payload: SubscriptionSettings = {
+        ...subSettings,
+        monthlyPricePkr: cleanPrice,
+        updatedAt: new Date().toISOString(),
+      };
+      await setDoc(doc(db, 'system', 'subscription_settings'), payload, { merge: true });
+      setSubSettings(payload);
+      success(`Subscription settings saved! Monthly price is now PKR ${cleanPrice.toLocaleString('en-PK')}/month.`);
+    } catch (err: any) {
+      toast('Failed to save subscription settings', 'error');
+    } finally {
+      setSavingSubSettings(false);
+    }
+  };
+
+  const handleApproveRequest = async (req: SubscriptionRequest, days: 30 | 31) => {
+    if (processingRequestId) return;
+    setProcessingRequestId(req.id);
+    try {
+      const now = new Date();
+      const endsAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+
+      await setDoc(
+        doc(db, 'subscriptionRequests', req.id),
+        {
+          status: 'approved',
+          grantedDays: days,
+          reviewedAt: now.toISOString(),
+        },
+        { merge: true }
+      );
+
+      const matchedTenant = tenants.find(
+        (t) =>
+          t.ownerUid === req.ownerUid ||
+          t.id === req.ownerUid ||
+          t.ownerEmail.toLowerCase() === (req.ownerEmail || '').toLowerCase()
+      );
+
+      await updateTenantSubscriptionDocs(
+        matchedTenant?.id || req.ownerUid,
+        req.ownerUid,
+        req.ownerEmail,
+        {
+          subscriptionStatus: 'active',
+          subscriptionStartedAt: now.toISOString(),
+          subscriptionEndsAt: endsAt.toISOString(),
+          subscriptionPlanPrice: req.amountPkr || subSettings.monthlyPricePkr || 1999,
+          rejectionReason: '',
+        }
+      );
+
+      setTenants((prev) =>
+        prev.map((t) =>
+          t.ownerUid === req.ownerUid ||
+          t.ownerEmail.toLowerCase() === (req.ownerEmail || '').toLowerCase()
+            ? {
+                ...t,
+                subscriptionStatus: 'active',
+                subscriptionEndsAt: endsAt.toISOString(),
+              }
+            : t
+        )
+      );
+
+      if (selectedRequestModal?.id === req.id) {
+        setSelectedRequestModal(null);
+      }
+      success(`Approved ${req.shopName} for ${days} days! Client POS unlocked immediately.`);
+    } catch (err: any) {
+      toast('Failed to approve subscription request', 'error');
+    } finally {
+      setProcessingRequestId(null);
+    }
+  };
+
+  const handleRejectRequest = async (req: SubscriptionRequest) => {
+    if (processingRequestId) return;
+    setProcessingRequestId(req.id);
+    try {
+      const now = new Date();
+      const reason =
+        'Your payment verification could not be confirmed. Please double-check the Transaction ID (TID) and upload a clear receipt screenshot.';
+
+      await setDoc(
+        doc(db, 'subscriptionRequests', req.id),
+        {
+          status: 'rejected',
+          rejectionReason: reason,
+          reviewedAt: now.toISOString(),
+        },
+        { merge: true }
+      );
+
+      const matchedTenant = tenants.find(
+        (t) =>
+          t.ownerUid === req.ownerUid ||
+          t.id === req.ownerUid ||
+          t.ownerEmail.toLowerCase() === (req.ownerEmail || '').toLowerCase()
+      );
+
+      await updateTenantSubscriptionDocs(
+        matchedTenant?.id || req.ownerUid,
+        req.ownerUid,
+        req.ownerEmail,
+        {
+          subscriptionStatus: 'expired',
+          rejectionReason: reason,
+        }
+      );
+
+      setTenants((prev) =>
+        prev.map((t) =>
+          t.ownerUid === req.ownerUid ||
+          t.ownerEmail.toLowerCase() === (req.ownerEmail || '').toLowerCase()
+            ? {
+                ...t,
+                subscriptionStatus: 'expired',
+              }
+            : t
+        )
+      );
+
+      if (selectedRequestModal?.id === req.id) {
+        setSelectedRequestModal(null);
+      }
+      success(`Rejected payment request from ${req.shopName}. Subscription page re-enabled for client.`);
+    } catch (err: any) {
+      toast('Failed to reject subscription request', 'error');
+    } finally {
+      setProcessingRequestId(null);
+    }
+  };
+
+  const pendingRequestsCount = subRequests.filter((r) => r.status === 'pending').length;
+  const filteredSubRequests = subRequests.filter((r) =>
+    requestFilter === 'all' ? true : r.status === requestFilter
+  );
+
   if (!isMasterAdmin) return null;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="p-1 rounded-lg bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20">
-              <ShieldCheck className="w-5 h-5 text-[#522D60]" />
-            </span>
-            <h1 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight">
-              HISAABFLOW Super Admin
-            </h1>
-          </div>
-          <p className="text-xs text-gray-400 mt-0.5">
-            Admin Client Accounts Portal (Restricted to {user?.email})
-          </p>
+        <div className="flex items-center gap-2.5">
+          <span className="p-2 rounded-xl bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20">
+            <ShieldCheck className="w-5 h-5 text-[#522D60]" />
+          </span>
+          <h1 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight">
+            HisaabFlow Admin
+          </h1>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             onClick={() => fetchTenants(false)}
             variant="secondary"
@@ -749,7 +1064,597 @@ export default function SuperAdminPage() {
         </div>
       </div>
 
-      {/* KPI Stats + Master Integrations Grid */}
+      {/* Section Navigation Tabs */}
+      <div className="flex flex-wrap items-center gap-2 bg-white p-1.5 rounded-2xl border border-gray-200/80 shadow-xs w-fit">
+        <button
+          type="button"
+          onClick={() => setActiveTab('accounts')}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[40px] ${
+            activeTab === 'accounts'
+              ? 'bg-[#522D60] text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+          }`}
+        >
+          <Users className="w-4 h-4 shrink-0" />
+          <span>Client Accounts ({totalClients})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('subscriptions')}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[40px] ${
+            activeTab === 'subscriptions'
+              ? 'bg-[#522D60] text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+          }`}
+        >
+          <CreditCard className="w-4 h-4 shrink-0" />
+          <span>Manage Subscriptions</span>
+          {pendingRequestsCount > 0 && (
+            <span
+              className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold tabular-nums ${
+                activeTab === 'subscriptions'
+                  ? 'bg-white text-[#522D60]'
+                  : 'bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20'
+              }`}
+            >
+              {pendingRequestsCount} Pending
+            </span>
+          )}
+        </button>
+      </div>
+
+      {activeTab === 'subscriptions' ? (
+        <div className="space-y-6">
+          {/* Subscription KPI Summary Row */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-card flex items-center gap-3.5">
+              <div className="w-11 h-11 rounded-xl bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20 flex items-center justify-center shrink-0">
+                <CreditCard className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-gray-400">Monthly Price</p>
+                <p
+                  className="text-xl sm:text-2xl font-black text-gray-900 tabular-nums"
+                  style={{ fontFamily: 'Sora, sans-serif' }}
+                >
+                  PKR {(subSettings.monthlyPricePkr || 1999).toLocaleString('en-PK')}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-card flex items-center gap-3.5">
+              <div className="w-11 h-11 rounded-xl bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20 flex items-center justify-center shrink-0">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-gray-400">Pending Approvals</p>
+                <p
+                  className="text-xl sm:text-2xl font-black text-gray-900 tabular-nums"
+                  style={{ fontFamily: 'Sora, sans-serif' }}
+                >
+                  {pendingRequestsCount}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-card flex items-center gap-3.5">
+              <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-gray-400">Active & Trial</p>
+                <p
+                  className="text-xl sm:text-2xl font-black text-gray-900 tabular-nums"
+                  style={{ fontFamily: 'Sora, sans-serif' }}
+                >
+                  {
+                    tenants.filter((t) => {
+                      const ev = evaluateSubscriptionAccess(t, false);
+                      return ev.effectiveStatus === 'active' || ev.effectiveStatus === 'trial';
+                    }).length
+                  }
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-card flex items-center gap-3.5">
+              <div className="w-11 h-11 rounded-xl bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20 flex items-center justify-center shrink-0">
+                <Gift className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-gray-400">Free Shops</p>
+                <p
+                  className="text-xl sm:text-2xl font-black text-gray-900 tabular-nums"
+                  style={{ fontFamily: 'Sora, sans-serif' }}
+                >
+                  {tenants.filter((t) => t.subscriptionStatus === 'free').length}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* 1. Pricing & Payment Accounts */}
+          <form
+            onSubmit={handleSaveSubscriptionSettings}
+            className="bg-white rounded-2xl shadow-card border border-gray-100 p-5 sm:p-6 space-y-4"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100">
+              <h2 className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-[#522D60]" />
+                <span>Pricing & Payment Accounts</span>
+              </h2>
+
+              <Button
+                type="submit"
+                disabled={savingSubSettings}
+                isLoading={savingSubSettings}
+                className="bg-[#522D60] hover:bg-[#42244E] text-white text-xs font-bold shrink-0"
+              >
+                <Check className="w-3.5 h-3.5 mr-1.5" />
+                Save Changes
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Monthly Price */}
+              <div className="p-4 rounded-2xl bg-[#FAF5FC] border border-[#522D60]/20 flex flex-col justify-between space-y-2.5">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#522D60]">
+                  <CreditCard className="w-3.5 h-3.5" />
+                  <span>Monthly Plan Price</span>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-600 mb-1">
+                    Amount (PKR / Month)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-500">
+                      PKR
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      required
+                      value={subSettings.monthlyPricePkr}
+                      onChange={(e) =>
+                        setSubSettings((prev) => ({
+                          ...prev,
+                          monthlyPricePkr: Number(e.target.value),
+                        }))
+                      }
+                      className="w-full pl-11 pr-3 py-2 rounded-xl border border-[#522D60]/30 bg-white text-base font-black text-gray-900 tabular-nums focus:outline-none focus:border-[#522D60]"
+                      style={{ fontFamily: 'Sora, sans-serif' }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Easypaisa */}
+              <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200/80 space-y-2.5">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#522D60]">
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>Easypaisa</span>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-600 mb-1">
+                    Account Title
+                  </label>
+                  <input
+                    type="text"
+                    value={subSettings.easypaisaTitle}
+                    onChange={(e) =>
+                      setSubSettings((prev) => ({ ...prev, easypaisaTitle: e.target.value }))
+                    }
+                    placeholder="Account Title"
+                    className="w-full px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-900 focus:outline-none focus:border-[#522D60]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-600 mb-1">
+                    Mobile Number
+                  </label>
+                  <input
+                    type="text"
+                    value={subSettings.easypaisaNumber}
+                    onChange={(e) =>
+                      setSubSettings((prev) => ({ ...prev, easypaisaNumber: e.target.value }))
+                    }
+                    placeholder="03XX-XXXXXXX"
+                    className="w-full px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-mono font-bold text-gray-900 tabular-nums focus:outline-none focus:border-[#522D60]"
+                  />
+                </div>
+              </div>
+
+              {/* JazzCash */}
+              <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200/80 space-y-2.5">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#522D60]">
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>JazzCash</span>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-600 mb-1">
+                    Account Title
+                  </label>
+                  <input
+                    type="text"
+                    value={subSettings.jazzcashTitle}
+                    onChange={(e) =>
+                      setSubSettings((prev) => ({ ...prev, jazzcashTitle: e.target.value }))
+                    }
+                    placeholder="Account Title"
+                    className="w-full px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-900 focus:outline-none focus:border-[#522D60]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-600 mb-1">
+                    Mobile Number
+                  </label>
+                  <input
+                    type="text"
+                    value={subSettings.jazzcashNumber}
+                    onChange={(e) =>
+                      setSubSettings((prev) => ({ ...prev, jazzcashNumber: e.target.value }))
+                    }
+                    placeholder="03XX-XXXXXXX"
+                    className="w-full px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-mono font-bold text-gray-900 tabular-nums focus:outline-none focus:border-[#522D60]"
+                  />
+                </div>
+              </div>
+
+              {/* Bank Transfer */}
+              <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200/80 space-y-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#522D60]">
+                  <Building2 className="w-3.5 h-3.5" />
+                  <span>Bank Transfer</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-600 mb-1">
+                      Bank Name
+                    </label>
+                    <input
+                      type="text"
+                      value={subSettings.bankName}
+                      onChange={(e) =>
+                        setSubSettings((prev) => ({ ...prev, bankName: e.target.value }))
+                      }
+                      placeholder="Bank Name"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-900 focus:outline-none focus:border-[#522D60]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-600 mb-1">
+                      Account Title
+                    </label>
+                    <input
+                      type="text"
+                      value={subSettings.bankAccountTitle}
+                      onChange={(e) =>
+                        setSubSettings((prev) => ({ ...prev, bankAccountTitle: e.target.value }))
+                      }
+                      placeholder="Title"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-900 focus:outline-none focus:border-[#522D60]"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-600 mb-1">
+                    Account Number / IBAN
+                  </label>
+                  <input
+                    type="text"
+                    value={subSettings.bankAccountNumber}
+                    onChange={(e) =>
+                      setSubSettings((prev) => ({ ...prev, bankAccountNumber: e.target.value }))
+                    }
+                    placeholder="Account / IBAN"
+                    className="w-full px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-mono font-bold text-gray-900 tabular-nums focus:outline-none focus:border-[#522D60]"
+                  />
+                </div>
+              </div>
+            </div>
+          </form>
+
+          {/* 2. Payment Approvals */}
+          <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+            <div className="p-4 sm:p-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <h2 className="text-sm sm:text-base font-bold text-gray-900">
+                Payment Approvals
+              </h2>
+
+              <div className="flex flex-wrap items-center gap-1.5 bg-gray-100 p-1 rounded-xl">
+                {(
+                  [
+                    { id: 'pending', label: `Pending (${pendingRequestsCount})` },
+                    { id: 'approved', label: 'Approved' },
+                    { id: 'rejected', label: 'Rejected' },
+                    { id: 'all', label: 'All' },
+                  ] as const
+                ).map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setRequestFilter(tab.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      requestFilter === tab.id
+                        ? 'bg-white text-[#522D60] shadow-xs'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[800px] text-left text-xs">
+                <thead>
+                  <tr className="bg-gray-50/80 border-b border-gray-100 text-[11px] font-bold text-gray-500">
+                    <th className="px-5 py-3">Shop</th>
+                    <th className="px-5 py-3">Amount & Method</th>
+                    <th className="px-5 py-3">Sender Account</th>
+                    <th className="px-5 py-3">TID (6 Digits)</th>
+                    <th className="px-5 py-3">Date</th>
+                    <th className="px-5 py-3 text-center">Receipt</th>
+                    <th className="px-5 py-3 text-center">Status</th>
+                    <th className="px-5 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredSubRequests.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-5 py-10 text-center text-gray-400">
+                        No {requestFilter === 'all' ? '' : requestFilter} payment requests.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredSubRequests.map((req) => {
+                      const submittedDate = parseDateSafe(req.submittedAt) || new Date();
+                      const isProcessing = processingRequestId === req.id;
+
+                      return (
+                        <tr key={req.id} className="hover:bg-purple-50/20 transition-colors">
+                          <td className="px-5 py-3.5 whitespace-nowrap">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-gray-900">{req.shopName}</span>
+                              <span className="text-[11px] text-gray-500 font-mono">
+                                {req.ownerEmail}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3.5 whitespace-nowrap">
+                            <div className="flex flex-col">
+                              <span
+                                className="font-black text-gray-900 tabular-nums"
+                                style={{ fontFamily: 'Sora, sans-serif' }}
+                              >
+                                PKR {(req.amountPkr || 1999).toLocaleString('en-PK')}
+                              </span>
+                              <span className="text-[11px] font-semibold text-[#522D60]">
+                                {req.paymentMethod}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3.5 whitespace-nowrap">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-gray-800">
+                                {req.senderAccountName}
+                              </span>
+                              <span className="text-[11px] font-mono text-gray-500 tabular-nums">
+                                {req.senderAccountNumber}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3.5 whitespace-nowrap">
+                            <span className="px-2.5 py-1 rounded-lg bg-[#FAF5FC] border border-[#522D60]/20 text-[#522D60] font-mono font-black text-xs tabular-nums">
+                              #{req.transactionIdLast6}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-gray-600 whitespace-nowrap tabular-nums">
+                            {format(submittedDate, 'dd MMM yyyy, hh:mm a')}
+                          </td>
+                          <td className="px-5 py-3.5 text-center whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedRequestModal(req)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#FAF5FC] hover:bg-purple-100 text-[#522D60] border border-[#522D60]/20 text-[11px] font-bold transition-colors cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>View</span>
+                            </button>
+                          </td>
+                          <td className="px-5 py-3.5 text-center whitespace-nowrap">
+                            {req.status === 'pending' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20">
+                                <Clock className="w-3 h-3 text-[#522D60]" />
+                                Pending
+                              </span>
+                            )}
+                            {req.status === 'approved' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                Approved ({req.grantedDays || 30}d)
+                              </span>
+                            )}
+                            {req.status === 'rejected' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                                <XCircle className="w-3 h-3 text-rose-600" />
+                                Rejected
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3.5 text-right whitespace-nowrap">
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                disabled={isProcessing}
+                                onClick={() => handleApproveRequest(req, 30)}
+                                className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                Approve 30d
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isProcessing}
+                                onClick={() => handleApproveRequest(req, 31)}
+                                className="px-2.5 py-1.5 rounded-lg bg-[#522D60] hover:bg-[#42244E] text-white text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                Approve 31d
+                              </button>
+                              {req.status !== 'rejected' && (
+                                <button
+                                  type="button"
+                                  disabled={isProcessing}
+                                  onClick={() => handleRejectRequest(req)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  Reject
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* 3. Client Subscriptions */}
+          <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+            <div className="p-4 sm:p-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <h2 className="text-sm sm:text-base font-bold text-gray-900">
+                Client Subscriptions
+              </h2>
+              <div className="relative w-full sm:w-72">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search shop or email..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-gray-200 text-xs text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:border-[#522D60]"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[740px] text-left text-xs">
+                <thead>
+                  <tr className="bg-gray-50/80 border-b border-gray-100 text-[11px] font-bold text-gray-500">
+                    <th className="px-5 py-3">Shop</th>
+                    <th className="px-5 py-3">Email</th>
+                    <th className="px-5 py-3 text-center">Plan Status</th>
+                    <th className="px-5 py-3">Validity</th>
+                    <th className="px-5 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredTenants.map((t) => {
+                    const isOwner =
+                      t.ownerEmail.toLowerCase() === 'threadsandtailsshop@gmail.com' ||
+                      t.ownerEmail.toLowerCase() === 'admin@hisaabflow.com';
+                    const subEval = evaluateSubscriptionAccess(t, isOwner);
+                    const isFree = t.subscriptionStatus === 'free';
+
+                    return (
+                      <tr key={t.id} className="hover:bg-purple-50/20 transition-colors">
+                        <td className="px-5 py-3.5 font-bold text-gray-900 whitespace-nowrap">
+                          <div className="flex flex-col">
+                            <span>{t.shopName}</span>
+                            <span className="text-[10px] font-normal text-gray-400">
+                              {t.ownerName}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3.5 font-mono text-gray-700 whitespace-nowrap">
+                          {t.ownerEmail}
+                        </td>
+                        <td className="px-5 py-3.5 text-center whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold ${
+                              subEval.effectiveStatus === 'free'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : subEval.effectiveStatus === 'active' ||
+                                  subEval.effectiveStatus === 'trial' ||
+                                  subEval.effectiveStatus === 'pending_approval'
+                                ? 'bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20'
+                                : 'bg-rose-50 text-rose-700 border border-rose-200'
+                            }`}
+                          >
+                            {subEval.remainingText}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3.5 text-gray-600 whitespace-nowrap tabular-nums">
+                          {subEval.effectiveStatus === 'active' && t.subscriptionEndsAt
+                            ? `Until ${format(new Date(t.subscriptionEndsAt), 'dd MMM yyyy')}`
+                            : subEval.effectiveStatus === 'trial' && t.trialEndsAt
+                            ? `Trial ends ${format(new Date(t.trialEndsAt), 'dd MMM, hh:mm a')}`
+                            : subEval.effectiveStatus === 'free'
+                            ? 'Unlimited'
+                            : 'Subscription Required'}
+                        </td>
+                        <td className="px-5 py-3.5 text-right whitespace-nowrap">
+                          {isOwner ? (
+                            <span className="text-[11px] text-gray-400 italic">Admin</span>
+                          ) : (
+                            <div className="inline-flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                disabled={togglingSubTenantId === t.id}
+                                onClick={() => handleToggleFreeAccess(t)}
+                                className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                  isFree
+                                    ? 'bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/25 hover:bg-purple-100/70'
+                                    : 'bg-[#522D60] text-white hover:bg-[#42244E] shadow-xs'
+                                }`}
+                              >
+                                {isFree ? (
+                                  <>
+                                    <Lock className="w-3 h-3" />
+                                    <span>Make Paid</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Gift className="w-3 h-3" />
+                                    <span>Make Free</span>
+                                  </>
+                                )}
+                              </button>
+
+                              <button
+                                type="button"
+                                disabled={togglingSubTenantId === t.id}
+                                onClick={() => handleGrantDaysToTenant(t, 30)}
+                                className="px-2.5 py-1.5 rounded-lg bg-[#FAF5FC] hover:bg-purple-100 text-[#522D60] border border-[#522D60]/20 text-[11px] font-bold transition-colors cursor-pointer"
+                              >
+                                +30d
+                              </button>
+                              <button
+                                type="button"
+                                disabled={togglingSubTenantId === t.id}
+                                onClick={() => handleGrantDaysToTenant(t, 31)}
+                                className="px-2.5 py-1.5 rounded-lg bg-[#FAF5FC] hover:bg-purple-100 text-[#522D60] border border-[#522D60]/20 text-[11px] font-bold transition-colors cursor-pointer"
+                              >
+                                +31d
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* KPI Stats + Master Integrations Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {/* Card 1: Total Client Shops */}
         <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-card flex items-center gap-4">
@@ -925,7 +1830,9 @@ export default function SuperAdminPage() {
         <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-bold text-gray-900">Registered Client Accounts</h2>
-            <p className="text-[11px] text-gray-400">Live-synced accounts from Firestore & Authentication</p>
+            <p className="text-[11px] text-gray-400">
+              Live-synced accounts from Firestore & Authentication • Use &ldquo;Make Free&rdquo; or &ldquo;Make Paid&rdquo; per user row
+            </p>
           </div>
           <div className="relative w-full sm:w-80">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -940,14 +1847,14 @@ export default function SuperAdminPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-xs">
+          <table className="w-full min-w-[860px] text-left text-xs">
             <thead>
-              <tr className="bg-gray-50/80 border-b border-gray-100 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+              <tr className="bg-gray-50/80 border-b border-gray-100 text-[11px] font-bold text-gray-500">
                 <th className="px-5 py-3">Shop / Client</th>
                 <th className="px-5 py-3">Logged-in Gmail</th>
                 <th className="px-5 py-3">Data Used</th>
                 <th className="px-5 py-3">Join Date</th>
-                <th className="px-5 py-3">User UID</th>
+                <th className="px-5 py-3 text-center">Subscription</th>
                 <th className="px-5 py-3 text-center">Status</th>
                 <th className="px-5 py-3 text-right">Action</th>
               </tr>
@@ -973,6 +1880,8 @@ export default function SuperAdminPage() {
                   const isOwner =
                     t.ownerEmail.toLowerCase() === 'threadsandtailsshop@gmail.com' ||
                     t.ownerEmail.toLowerCase() === 'threadsandtailsusa@gmail.com';
+                  const subEval = evaluateSubscriptionAccess(t, isOwner);
+                  const isFree = t.subscriptionStatus === 'free';
 
                   return (
                     <tr key={t.id} className="hover:bg-purple-50/20 transition-colors">
@@ -1006,11 +1915,23 @@ export default function SuperAdminPage() {
                           </span>
                         </div>
                       </td>
-                      <td className="px-5 py-3.5 text-gray-600 whitespace-nowrap font-medium">
+                      <td className="px-5 py-3.5 text-gray-600 whitespace-nowrap font-medium tabular-nums">
                         {format(t.registeredDate, 'dd MMM yyyy')}
                       </td>
-                      <td className="px-5 py-3.5 font-mono text-[11px] text-gray-500 whitespace-nowrap" title={t.ownerUid || t.id}>
-                        {(t.ownerUid || t.id || '').length > 20 ? `${(t.ownerUid || t.id).slice(0, 20)}...` : (t.ownerUid || t.id)}
+                      <td className="px-5 py-3.5 text-center whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold ${
+                            subEval.effectiveStatus === 'free'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : subEval.effectiveStatus === 'active' ||
+                                subEval.effectiveStatus === 'trial' ||
+                                subEval.effectiveStatus === 'pending_approval'
+                              ? 'bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}
+                        >
+                          {subEval.remainingText}
+                        </span>
                       </td>
                       <td className="px-5 py-3.5 text-center whitespace-nowrap">
                         <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
@@ -1030,7 +1951,35 @@ export default function SuperAdminPage() {
                         {isOwner ? (
                           <span className="text-[11px] text-gray-400 italic">Super Admin</span>
                         ) : (
-                          <div className="inline-flex items-center justify-end gap-2.5">
+                          <div className="inline-flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleFreeAccess(t)}
+                              disabled={togglingSubTenantId === t.id}
+                              title={
+                                isFree
+                                  ? 'Currently Free — Click to require Paid Subscription for this user'
+                                  : 'Click to make HisaabFlow completely Free for this user'
+                              }
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                isFree
+                                  ? 'bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/25 hover:bg-purple-100/70'
+                                  : 'bg-[#522D60] text-white hover:bg-[#42244E] shadow-xs'
+                              }`}
+                            >
+                              {isFree ? (
+                                <>
+                                  <Lock className="w-3 h-3" />
+                                  <span>Make Paid</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Gift className="w-3 h-3" />
+                                  <span>Make Free</span>
+                                </>
+                              )}
+                            </button>
+
                             <button
                               type="button"
                               onClick={() => handleBackupTenant(t)}
@@ -1085,6 +2034,110 @@ export default function SuperAdminPage() {
           </table>
         </div>
       </div>
+        </>
+      )}
+
+      {/* Modal: View Payment Proof Screenshot & Approve / Reject */}
+      <Modal
+        isOpen={!!selectedRequestModal}
+        onClose={() => !processingRequestId && setSelectedRequestModal(null)}
+        title="Verify Subscription Payment Proof"
+        size="lg"
+      >
+        {selectedRequestModal && (
+          <div className="space-y-4 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-2xl bg-gray-50 border border-gray-200">
+              <div className="space-y-1.5">
+                <p className="text-gray-500">
+                  Shop Name:{' '}
+                  <strong className="text-gray-900">{selectedRequestModal.shopName}</strong>
+                </p>
+                <p className="text-gray-500">
+                  Client Email:{' '}
+                  <strong className="text-gray-900 font-mono">
+                    {selectedRequestModal.ownerEmail}
+                  </strong>
+                </p>
+                <p className="text-gray-500">
+                  Method:{' '}
+                  <strong className="text-[#522D60]">{selectedRequestModal.paymentMethod}</strong>
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-gray-500">
+                  Amount:{' '}
+                  <strong className="text-gray-900 tabular-nums">
+                    PKR {(selectedRequestModal.amountPkr || 1999).toLocaleString('en-PK')}
+                  </strong>
+                </p>
+                <p className="text-gray-500">
+                  Sender:{' '}
+                  <strong className="text-gray-900">
+                    {selectedRequestModal.senderAccountName} ({selectedRequestModal.senderAccountNumber})
+                  </strong>
+                </p>
+                <p className="text-gray-500">
+                  Last 6 Digits TID:{' '}
+                  <span className="px-2 py-0.5 rounded bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20 font-mono font-black tabular-nums">
+                    #{selectedRequestModal.transactionIdLast6}
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 rounded-2xl p-3 flex items-center justify-center max-h-[420px] overflow-auto border border-gray-200">
+              {selectedRequestModal.screenshotDataUrl ? (
+                <img
+                  src={selectedRequestModal.screenshotDataUrl}
+                  alt="Payment Proof Screenshot"
+                  className="max-h-[390px] w-auto rounded-lg object-contain"
+                />
+              ) : (
+                <p className="text-gray-400 py-12">No screenshot attached.</p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-gray-100">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setSelectedRequestModal(null)}
+                className="text-xs"
+              >
+                Close
+              </Button>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="danger"
+                  disabled={processingRequestId === selectedRequestModal.id}
+                  onClick={() => handleRejectRequest(selectedRequestModal)}
+                  className="text-xs font-bold"
+                >
+                  Reject Payment
+                </Button>
+                <Button
+                  type="button"
+                  disabled={processingRequestId === selectedRequestModal.id}
+                  onClick={() => handleApproveRequest(selectedRequestModal, 30)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
+                >
+                  Approve 30 Days
+                </Button>
+                <Button
+                  type="button"
+                  disabled={processingRequestId === selectedRequestModal.id}
+                  onClick={() => handleApproveRequest(selectedRequestModal, 31)}
+                  className="bg-[#522D60] hover:bg-[#42244E] text-white text-xs font-bold"
+                >
+                  Approve 31 Days
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Modal: Confirm Delete Client Account */}
       <Modal

@@ -2,6 +2,59 @@ import { collection, getDocs, doc, getDoc, setDoc, writeBatch, serverTimestamp }
 import { db } from '../lib/firebase';
 import { getInitials, updateAppBranding } from './brandIdentity';
 
+export type SubscriptionStatus =
+  | 'free'
+  | 'unselected'
+  | 'trial'
+  | 'pending_approval'
+  | 'active'
+  | 'expired';
+
+export interface SubscriptionSettings {
+  monthlyPricePkr: number;
+  easypaisaTitle: string;
+  easypaisaNumber: string;
+  jazzcashTitle: string;
+  jazzcashNumber: string;
+  bankName: string;
+  bankAccountTitle: string;
+  bankAccountNumber: string;
+  whatsappSupportNumber?: string;
+  updatedAt?: string;
+}
+
+export const DEFAULT_SUBSCRIPTION_SETTINGS: SubscriptionSettings = {
+  monthlyPricePkr: 1999,
+  easypaisaTitle: 'HisaabFlow Official',
+  easypaisaNumber: '0300-0000000',
+  jazzcashTitle: 'HisaabFlow Official',
+  jazzcashNumber: '0300-0000000',
+  bankName: 'Meezan Bank',
+  bankAccountTitle: 'HisaabFlow Technologies',
+  bankAccountNumber: 'PK00MEZN0000000000000000',
+  whatsappSupportNumber: '',
+};
+
+export interface SubscriptionRequest {
+  id: string;
+  shopId: string;
+  ownerUid: string;
+  ownerEmail: string;
+  shopName: string;
+  ownerName: string;
+  amountPkr: number;
+  paymentMethod: 'Easypaisa' | 'JazzCash' | 'Bank Transfer';
+  senderAccountName: string;
+  senderAccountNumber: string;
+  transactionIdLast6: string;
+  screenshotDataUrl: string;
+  status: 'pending' | 'approved' | 'rejected';
+  grantedDays?: number;
+  rejectionReason?: string;
+  submittedAt: string;
+  reviewedAt?: string;
+}
+
 export interface ShopProfile {
   shopId: string;
   ownerUid: string;
@@ -24,8 +77,138 @@ export interface ShopProfile {
   pinCodeHash?: string;
   enableImeiCheck?: boolean;
   enableSupplierKhata?: boolean;
+  subscriptionStatus?: SubscriptionStatus;
+  trialStartedAt?: string;
+  trialEndsAt?: string;
+  trialUsed?: boolean;
+  subscriptionStartedAt?: string;
+  subscriptionEndsAt?: string;
+  subscriptionPlanPrice?: number;
+  lastPaymentRequestId?: string;
+  rejectionReason?: string;
   createdAt?: any;
   updatedAt?: any;
+}
+
+export interface SubscriptionAccessEvaluation {
+  isLocked: boolean;
+  effectiveStatus: SubscriptionStatus;
+  remainingMs: number;
+  remainingText: string;
+  expiredReason?: 'trial_ended' | 'subscription_ended' | 'admin_locked';
+}
+
+export function evaluateSubscriptionAccess(
+  profile: Partial<ShopProfile> | null | undefined,
+  isMasterAdmin = false
+): SubscriptionAccessEvaluation {
+  if (isMasterAdmin) {
+    return {
+      isLocked: false,
+      effectiveStatus: 'free',
+      remainingMs: Infinity,
+      remainingText: 'Super Admin',
+    };
+  }
+
+  const email = (profile?.ownerEmail || '').toLowerCase().trim();
+  if (email === 'threadsandtailsshop@gmail.com' || email === 'admin@hisaabflow.com') {
+    return {
+      isLocked: false,
+      effectiveStatus: 'free',
+      remainingMs: Infinity,
+      remainingText: 'Super Admin',
+    };
+  }
+
+  const rawStatus: SubscriptionStatus = profile?.subscriptionStatus || 'free';
+  const now = Date.now();
+
+  const formatRemaining = (ms: number): string => {
+    if (ms <= 0) return 'Expired';
+    const totalHours = Math.ceil(ms / (1000 * 60 * 60));
+    if (totalHours < 48) {
+      return `${totalHours} ${totalHours === 1 ? 'hr' : 'hrs'} left`;
+    }
+    const days = Math.ceil(ms / (1000 * 60 * 60 * 24));
+    return `${days} ${days === 1 ? 'day' : 'days'} left`;
+  };
+
+  if (rawStatus === 'free') {
+    return {
+      isLocked: false,
+      effectiveStatus: 'free',
+      remainingMs: Infinity,
+      remainingText: 'Free Access',
+    };
+  }
+
+  if (rawStatus === 'trial') {
+    const endsMs = profile?.trialEndsAt ? new Date(profile.trialEndsAt).getTime() : 0;
+    if (endsMs && !isNaN(endsMs) && now < endsMs) {
+      const rem = endsMs - now;
+      return {
+        isLocked: false,
+        effectiveStatus: 'trial',
+        remainingMs: rem,
+        remainingText: `Trial (${formatRemaining(rem)})`,
+      };
+    }
+    return {
+      isLocked: true,
+      effectiveStatus: 'expired',
+      remainingMs: 0,
+      remainingText: 'Trial Expired',
+      expiredReason: 'trial_ended',
+    };
+  }
+
+  if (rawStatus === 'active') {
+    const endsMs = profile?.subscriptionEndsAt ? new Date(profile.subscriptionEndsAt).getTime() : 0;
+    if (endsMs && !isNaN(endsMs) && now < endsMs) {
+      const rem = endsMs - now;
+      return {
+        isLocked: false,
+        effectiveStatus: 'active',
+        remainingMs: rem,
+        remainingText: `Paid (${formatRemaining(rem)})`,
+      };
+    }
+    return {
+      isLocked: true,
+      effectiveStatus: 'expired',
+      remainingMs: 0,
+      remainingText: 'Subscription Expired',
+      expiredReason: 'subscription_ended',
+    };
+  }
+
+  if (rawStatus === 'pending_approval') {
+    return {
+      isLocked: true,
+      effectiveStatus: 'pending_approval',
+      remainingMs: 0,
+      remainingText: 'Pending Approval',
+    };
+  }
+
+  if (rawStatus === 'expired') {
+    return {
+      isLocked: true,
+      effectiveStatus: 'expired',
+      remainingMs: 0,
+      remainingText: 'Payment Required',
+      expiredReason: profile?.trialUsed ? 'trial_ended' : 'admin_locked',
+    };
+  }
+
+  // 'unselected'
+  return {
+    isLocked: true,
+    effectiveStatus: 'unselected',
+    remainingMs: 0,
+    remainingText: 'Plan Selection Required',
+  };
 }
 
 export const ARSHAD_SHOP_ID = 'arshad-mobile-zone';
@@ -45,6 +228,7 @@ export const DEFAULT_ARSHAD_PROFILE: ShopProfile = {
   whatsappFooter: 'ارشد موبائل زون (AMZ) باڑہ بازار، خیبر',
   logoUrl: '',
   avatarUrl: '',
+  subscriptionStatus: 'free',
 };
 
 export const EMPTY_SHOP_PROFILE: ShopProfile = {
@@ -64,6 +248,7 @@ export const EMPTY_SHOP_PROFILE: ShopProfile = {
   avatarUrl: '',
   enableImeiCheck: false,
   enableSupplierKhata: false,
+  subscriptionStatus: 'free',
 };
 
 /**
@@ -125,6 +310,7 @@ export async function getShopProfile(
         shortName: data.shortName || getInitials(resolvedName),
         ownerUid: uid,
         ownerEmail: email || data.ownerEmail,
+        subscriptionStatus: data.subscriptionStatus || 'free',
       };
       updateAppBranding(profile.shopName, profile.shortName);
       return profile;
@@ -150,6 +336,7 @@ export async function getShopProfile(
         subTitle: 'System Administration',
         receiptNote: '',
         whatsappFooter: '',
+        subscriptionStatus: 'free',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
@@ -158,6 +345,7 @@ export async function getShopProfile(
         ...DEFAULT_ARSHAD_PROFILE,
         ownerUid: uid,
         ownerEmail: email,
+        subscriptionStatus: 'free',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
@@ -180,6 +368,8 @@ export async function getShopProfile(
         subTitle: 'Mobile Sales & Services',
         receiptNote: 'Warranty claim requires original bill slip. Thank you for your business!',
         whatsappFooter: `${shopName} — Main Market`,
+        subscriptionStatus: 'unselected',
+        trialUsed: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
@@ -214,12 +404,20 @@ export async function updateShopProfile(uid: string, data: Partial<ShopProfile>)
 
   await setDoc(shopRef, payload, { merge: true });
 
-  // Also sync shopName, ownerName, and PIN settings to the `users` collection so Admin Panel and cross-device auth stay 100% synced
+  // Also sync shopName, ownerName, PIN, and subscription settings to the `users` collection so Admin Panel and cross-device auth stay 100% synced
   const userSyncPayload: Record<string, any> = { updatedAt: serverTimestamp() };
   if (data.shopName) userSyncPayload.shopName = data.shopName;
   if (data.ownerName) userSyncPayload.name = data.ownerName;
   if (data.pinEnabled !== undefined) userSyncPayload.pinEnabled = data.pinEnabled;
   if (data.pinCodeHash !== undefined) userSyncPayload.pinCodeHash = data.pinCodeHash;
+  if (data.subscriptionStatus !== undefined) userSyncPayload.subscriptionStatus = data.subscriptionStatus;
+  if (data.trialStartedAt !== undefined) userSyncPayload.trialStartedAt = data.trialStartedAt;
+  if (data.trialEndsAt !== undefined) userSyncPayload.trialEndsAt = data.trialEndsAt;
+  if (data.trialUsed !== undefined) userSyncPayload.trialUsed = data.trialUsed;
+  if (data.subscriptionStartedAt !== undefined) userSyncPayload.subscriptionStartedAt = data.subscriptionStartedAt;
+  if (data.subscriptionEndsAt !== undefined) userSyncPayload.subscriptionEndsAt = data.subscriptionEndsAt;
+  if (data.subscriptionPlanPrice !== undefined) userSyncPayload.subscriptionPlanPrice = data.subscriptionPlanPrice;
+  if (data.lastPaymentRequestId !== undefined) userSyncPayload.lastPaymentRequestId = data.lastPaymentRequestId;
   await setDoc(doc(db, 'users', uid), userSyncPayload, { merge: true }).catch(() => {});
 
   if (data.shopName || shortName) {

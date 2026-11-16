@@ -66,6 +66,10 @@ const getInitialProfile = (): ShopProfile => {
     const cachedSub = localStorage.getItem('cached_shop_subtitle');
     const cachedImei = localStorage.getItem('cached_enable_imei_check');
     const cachedSupplier = localStorage.getItem('cached_enable_supplier_khata');
+    const cachedSubStatus = localStorage.getItem('cached_subscription_status') as any;
+    const cachedTrialEnds = localStorage.getItem('cached_trial_ends_at') || undefined;
+    const cachedSubEnds = localStorage.getItem('cached_subscription_ends_at') || undefined;
+    const cachedTrialUsed = localStorage.getItem('cached_trial_used') === 'true';
     if (cachedShopId && cachedName) {
       return {
         ...EMPTY_SHOP_PROFILE,
@@ -75,6 +79,10 @@ const getInitialProfile = (): ShopProfile => {
         subTitle: cachedSub || '',
         enableImeiCheck: cachedImei === 'true',
         enableSupplierKhata: cachedSupplier === 'true',
+        subscriptionStatus: cachedSubStatus || 'free',
+        trialEndsAt: cachedTrialEnds,
+        subscriptionEndsAt: cachedSubEnds,
+        trialUsed: cachedTrialUsed,
       };
     }
   } catch (e) {
@@ -191,6 +199,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         userData.createdAt = serverTimestamp();
         userData.role = MASTER_ADMIN_EMAILS.includes(email) ? 'superadmin' : 'admin';
         userData.status = 'active';
+        if (!MASTER_ADMIN_EMAILS.includes(email) && !email.includes('arshad')) {
+          userData.subscriptionStatus = 'unselected';
+          userData.trialUsed = false;
+        } else {
+          userData.subscriptionStatus = 'free';
+        }
       }
 
       await setDoc(userRef, userData, { merge: true });
@@ -200,6 +214,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const shopSnap = await getDoc(shopRef);
       if (!shopSnap.exists()) {
         const initials = getInitials(resolvedName || 'Mobile Center');
+        const isDefaultFree = MASTER_ADMIN_EMAILS.includes(email) || email.includes('arshad');
         await setDoc(shopRef, {
           shopId: `shop_${firebaseUser.uid.slice(0, 8)}`,
           ownerUid: firebaseUser.uid,
@@ -215,6 +230,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           whatsappFooter: `${resolvedName} — Main Market`,
           status: 'active',
           paidMonths: 0,
+          subscriptionStatus: isDefaultFree ? 'free' : 'unselected',
+          trialUsed: false,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         }, { merge: true });
@@ -259,6 +276,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (profile.subTitle) localStorage.setItem('cached_shop_subtitle', profile.subTitle);
         localStorage.setItem('cached_enable_imei_check', String(Boolean(profile.enableImeiCheck)));
         localStorage.setItem('cached_enable_supplier_khata', String(Boolean(profile.enableSupplierKhata)));
+        localStorage.setItem('cached_subscription_status', profile.subscriptionStatus || 'free');
+        localStorage.setItem('cached_trial_ends_at', profile.trialEndsAt || '');
+        localStorage.setItem('cached_subscription_ends_at', profile.subscriptionEndsAt || '');
+        localStorage.setItem('cached_trial_used', String(Boolean(profile.trialUsed)));
       } catch (e) {
         // ignore
       }
@@ -416,6 +437,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               shortName: resolvedShort,
               ownerUid: activeUid,
               ownerEmail: activeEmail || data.ownerEmail || prev.ownerEmail,
+              subscriptionStatus: data.subscriptionStatus || prev.subscriptionStatus || 'free',
             };
             try {
               localStorage.setItem('cached_shop_id', next.shopId);
@@ -424,6 +446,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               if (next.subTitle) localStorage.setItem('cached_shop_subtitle', next.subTitle);
               localStorage.setItem('cached_enable_imei_check', String(Boolean(next.enableImeiCheck)));
               localStorage.setItem('cached_enable_supplier_khata', String(Boolean(next.enableSupplierKhata)));
+              localStorage.setItem('cached_subscription_status', next.subscriptionStatus || 'free');
+              localStorage.setItem('cached_trial_ends_at', next.trialEndsAt || '');
+              localStorage.setItem('cached_subscription_ends_at', next.subscriptionEndsAt || '');
+              localStorage.setItem('cached_trial_used', String(Boolean(next.trialUsed)));
             } catch {}
             updateAppBranding(next.shopName, next.shortName);
             return next;
@@ -618,6 +644,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { user: firebaseUser } = await createUserWithEmailAndPassword(auth, cleanEmail, password);
     updateProfile(firebaseUser, { displayName: cleanName }).catch(console.warn);
 
+    const isDefaultFree = MASTER_ADMIN_EMAILS.includes(cleanEmail) || cleanEmail.includes('arshad');
+    const initialSubStatus = isDefaultFree ? 'free' : 'unselected';
+
     // Instantly generate and assign the new unique shop profile to state and storage
     const newShopId = `shop_${firebaseUser.uid.slice(0, 8)}`;
     const initials = getInitials(cleanName);
@@ -636,6 +665,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       whatsappFooter: `${cleanName} — Main Market`,
       enableImeiCheck: false,
       enableSupplierKhata: false,
+      subscriptionStatus: initialSubStatus,
+      trialUsed: false,
     };
 
     setShopProfile(newProfile);
@@ -645,6 +676,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('cached_shop_short_name', newProfile.shortName);
       localStorage.setItem('cached_enable_imei_check', 'false');
       localStorage.setItem('cached_enable_supplier_khata', 'false');
+      localStorage.setItem('cached_subscription_status', initialSubStatus);
+      localStorage.setItem('cached_trial_ends_at', '');
+      localStorage.setItem('cached_subscription_ends_at', '');
+      localStorage.setItem('cached_trial_used', 'false');
     } catch {}
 
     setUser(firebaseUser);
@@ -713,6 +748,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('cached_shop_subtitle');
       localStorage.removeItem('cached_enable_imei_check');
       localStorage.removeItem('cached_enable_supplier_khata');
+      localStorage.removeItem('cached_subscription_status');
+      localStorage.removeItem('cached_trial_ends_at');
+      localStorage.removeItem('cached_subscription_ends_at');
+      localStorage.removeItem('cached_trial_used');
       clearAllLocalDbCaches();
     } catch (e) {
       // ignore
@@ -739,6 +778,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         if (updated.enableSupplierKhata !== undefined) {
           localStorage.setItem('cached_enable_supplier_khata', String(Boolean(updated.enableSupplierKhata)));
+        }
+        if (updated.subscriptionStatus !== undefined) {
+          localStorage.setItem('cached_subscription_status', updated.subscriptionStatus);
+        }
+        if (updated.trialEndsAt !== undefined) {
+          localStorage.setItem('cached_trial_ends_at', updated.trialEndsAt || '');
+        }
+        if (updated.subscriptionEndsAt !== undefined) {
+          localStorage.setItem('cached_subscription_ends_at', updated.subscriptionEndsAt || '');
+        }
+        if (updated.trialUsed !== undefined) {
+          localStorage.setItem('cached_trial_used', String(Boolean(updated.trialUsed)));
         }
       } catch (e) {
         // ignore
