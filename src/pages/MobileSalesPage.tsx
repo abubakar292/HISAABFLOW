@@ -66,6 +66,7 @@ export default function MobileSalesPage() {
   const navigate = useNavigate();
   const { user, shopProfile, currentShopId } = useAuth();
   const [sales, setSales] = useState<any[]>([]);
+  const [billsMap, setBillsMap] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   
   // Search & Filters
@@ -117,8 +118,85 @@ export default function MobileSalesPage() {
         setLoading(false);
       }
     );
-    return unsub;
+    const unsubBills = onSnapshot(
+      collection(db, 'bills'),
+      (snap) => {
+        const map: Record<string, any> = {};
+        snap.docs.forEach(d => {
+          const data = d.data();
+          if (isDocForShop(data, currentShopId)) {
+            map[d.id] = { id: d.id, ...data };
+          }
+        });
+        setBillsMap(map);
+      },
+      () => {}
+    );
+
+    return () => {
+      unsub();
+      unsubBills();
+    };
   }, [user, currentShopId]);
+
+  const enrichedSales = useMemo(() => {
+    return sales.map(s => {
+      const linkedBill = s.billId ? billsMap[s.billId] : null;
+      const billItems = Array.isArray(linkedBill?.items) ? linkedBill.items : [];
+      const isMulti = Boolean(s.isMultiSale || billItems.length > 1);
+      const multiCount = s.multiSaleCount || billItems.length || 1;
+      const combinedProfit =
+        s.totalCombinedProfit !== undefined
+          ? Number(s.totalCombinedProfit)
+          : linkedBill?.totalProfit !== undefined
+          ? Number(linkedBill.totalProfit)
+          : Number(s.profit) || 0;
+
+      // Match corresponding item inside bill.items if needed
+      const matchedBillItem =
+        billItems.find((bi: any) => bi.mobileId && bi.mobileId === s.itemId) ||
+        billItems.find((bi: any) => bi.modelName && s.itemName && s.itemName.includes(bi.modelName)) ||
+        null;
+
+      let effectiveProfit = Math.round(Number(s.profit) || 0);
+      let effectiveBase = Math.round(Number(s.basePrice ?? matchedBillItem?.basePrice) || 0);
+      let effectiveSell = Math.round(Number(s.sellPrice ?? matchedBillItem?.sellPrice) || 0);
+
+      // Reconcile if sale profit was 0 on a multi-sale bill that had non-zero combined profit
+      if (isMulti && effectiveProfit === 0 && combinedProfit !== 0 && multiCount > 0) {
+        const share = Math.round(combinedProfit / multiCount);
+        effectiveProfit = share;
+        if (effectiveSell === effectiveBase && effectiveBase > 0) {
+          effectiveSell = effectiveBase + share;
+        }
+      }
+
+      const comp = s.company || s.brand || matchedBillItem?.company || 'Samsung';
+      const rawModel = s.modelName || matchedBillItem?.modelName || '';
+      const resolvedItemName =
+        (s.itemName && s.itemName.trim()) ||
+        (s.name && s.name.trim()) ||
+        (rawModel
+          ? rawModel.toLowerCase().startsWith(comp.toLowerCase())
+            ? rawModel
+            : `${comp} ${rawModel}`.trim()
+          : comp);
+
+      return {
+        ...s,
+        itemName: resolvedItemName,
+        company: comp,
+        ramRom: s.ramRom || matchedBillItem?.ramRom || '',
+        billNumber: s.billNumber || linkedBill?.billNumber || s.id.substring(0, 8).toUpperCase(),
+        basePrice: effectiveBase,
+        sellPrice: effectiveSell,
+        profit: effectiveProfit,
+        isMultiSale: isMulti,
+        multiSaleCount: multiCount,
+        totalCombinedProfit: Math.round(combinedProfit),
+      };
+    });
+  }, [sales, billsMap]);
 
   // Calculate active filter count
   const activeFiltersCount = useMemo(() => {
@@ -145,7 +223,7 @@ export default function MobileSalesPage() {
   };
 
   const filteredSales = useMemo(() => {
-    return sales.filter(s => {
+    return enrichedSales.filter(s => {
       // 1. Text Search across Model, Brand/Company, IMEI 1 & 2, Bill #, Customer Name, Phone
       const term = search.toLowerCase().trim();
       if (term) {
@@ -219,7 +297,7 @@ export default function MobileSalesPage() {
 
       return true;
     });
-  }, [sales, search, selectedCompany, selectedPayment, selectedStatus, dateFilter, minPrice, maxPrice, customStart, customEnd]);
+  }, [enrichedSales, search, selectedCompany, selectedPayment, selectedStatus, dateFilter, minPrice, maxPrice, customStart, customEnd]);
 
   // Summary Metrics for filtered view
   const totalSales = filteredSales.reduce((acc, s) => acc + (s.status !== 'returned' ? (Number(s.sellPrice) || 0) : 0), 0);
@@ -322,58 +400,49 @@ export default function MobileSalesPage() {
     }
   };
 
-  const handleOpenBluetooth = (sale: any) => {
-    setBluetoothSaleBill({
+  const buildBillPayloadForSale = (sale: any) => {
+    if (sale.billId && billsMap[sale.billId]) {
+      return billsMap[sale.billId];
+    }
+    return {
       id: sale.billId || sale.id,
       billNumber: sale.billNumber || sale.id.substring(0, 8).toUpperCase(),
       customerName: sale.customerName,
       customerPhone: sale.customerPhone || sale.phone,
       itemName: sale.itemName,
       company: sale.company || sale.brand,
+      ramRom: sale.ramRom || '',
       imei1: sale.imei1,
       imei2: sale.imei2,
       sellPrice: sale.sellPrice,
+      totalSellPrice: sale.sellPrice,
+      totalProfit: sale.profit,
       paymentMethod: sale.paymentMethod,
       warrantyDays: sale.warrantyDays ?? 0,
       warrantyLabel: sale.warrantyLabel || 'No Warranty',
       date: sale.date || sale.createdAt,
       items: [{
         modelName: sale.itemName,
+        itemName: sale.itemName,
         company: sale.company || sale.brand,
+        ramRom: sale.ramRom || '',
         imei1: sale.imei1,
         imei2: sale.imei2,
+        basePrice: sale.basePrice,
         sellPrice: sale.sellPrice,
+        profit: sale.profit,
         warrantyDays: sale.warrantyDays ?? 0,
         warrantyLabel: sale.warrantyLabel || 'No Warranty',
       }]
-    });
+    };
+  };
+
+  const handleOpenBluetooth = (sale: any) => {
+    setBluetoothSaleBill(buildBillPayloadForSale(sale));
   };
 
   const handleViewBill = (sale: any) => {
-    setPreviewSaleBill({
-      id: sale.billId || sale.id,
-      billNumber: sale.billNumber || sale.id.substring(0, 8).toUpperCase(),
-      customerName: sale.customerName,
-      customerPhone: sale.customerPhone || sale.phone,
-      itemName: sale.itemName,
-      company: sale.company || sale.brand,
-      imei1: sale.imei1,
-      imei2: sale.imei2,
-      sellPrice: sale.sellPrice,
-      paymentMethod: sale.paymentMethod,
-      warrantyDays: sale.warrantyDays ?? 0,
-      warrantyLabel: sale.warrantyLabel || 'No Warranty',
-      date: sale.date || sale.createdAt,
-      items: [{
-        modelName: sale.itemName,
-        company: sale.company || sale.brand,
-        imei1: sale.imei1,
-        imei2: sale.imei2,
-        sellPrice: sale.sellPrice,
-        warrantyDays: sale.warrantyDays ?? 0,
-        warrantyLabel: sale.warrantyLabel || 'No Warranty',
-      }]
-    });
+    setPreviewSaleBill(buildBillPayloadForSale(sale));
   };
 
   const saleBillHtml = previewSaleBill ? getBillHtml(previewSaleBill, shopProfile) : '';
@@ -750,6 +819,11 @@ export default function MobileSalesPage() {
                               Quick Sale
                             </span>
                           )}
+                          {s.isMultiSale && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/25">
+                              Multi Sale ({s.multiSaleCount} Mobiles)
+                            </span>
+                          )}
                           {s.ramRom && (
                             <span className="text-[10px] text-slate-500 font-mono font-medium">
                               ({s.ramRom})
@@ -792,6 +866,11 @@ export default function MobileSalesPage() {
                         }`}>
                           {s.profit >= 0 ? '+' : ''}Rs. {(s.profit || 0).toLocaleString()}
                         </span>
+                        {s.isMultiSale && s.totalCombinedProfit !== undefined && (
+                          <div className="text-[10px] font-semibold text-slate-500 mt-0.5">
+                            Combined: Rs. {Number(s.totalCombinedProfit || 0).toLocaleString()}
+                          </div>
+                        )}
                       </td>
 
                       {/* Payment Method & Status */}

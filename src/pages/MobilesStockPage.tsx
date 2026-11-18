@@ -196,6 +196,20 @@ export default function MobilesStockPage() {
       const resolvedCustomerName = singleSellModal.customerName?.trim() 
         || (singleSellModal.paymentMethod === 'Udhar' ? (khataCustomers.find(c => c.id === singleSelectedKhataId)?.name || 'Khata Customer') : 'Walk-in Customer');
 
+      const cleanSingleCompany = singleSellModal.company || singleSellModal.brand || 'Samsung';
+      const cleanSingleModel = singleSellModal.modelName || singleSellModal.name || 'Mobile';
+      const fullSingleName = cleanSingleModel.toLowerCase().startsWith(cleanSingleCompany.toLowerCase())
+        ? cleanSingleModel
+        : `${cleanSingleCompany} ${cleanSingleModel}`.trim();
+
+      // 2. Create Bill Record
+      const billRef = doc(collection(db, 'bills'));
+      const billsSnap = await getDocs(collection(db, 'bills'));
+      const shopBillsCount = billsSnap.docs.filter(b => isDocForShop(b.data(), currentShopId)).length;
+      const billPrefix = shopProfile?.shortName || 'MZ';
+      const billNumber = `${billPrefix}-${new Date().getFullYear()}-${String(shopBillsCount + 1).padStart(4, '0')}`;
+
+      // 3. Create Sale Record
       const saleRef = doc(collection(db, 'sales'));
       const saleData = {
         shopId: currentShopId,
@@ -203,13 +217,21 @@ export default function MobilesStockPage() {
         userEmail: (user?.email || '').toLowerCase(),
         itemType: 'mobile',
         itemId: singleSellModal.id,
-        itemName: `${singleSellModal.company} ${singleSellModal.modelName}`,
-        company: singleSellModal.company,
-        imei1: singleSellModal.imei1,
-        imei2: singleSellModal.imei2,
+        itemName: fullSingleName,
+        name: fullSingleName,
+        modelName: cleanSingleModel,
+        company: cleanSingleCompany,
+        brand: cleanSingleCompany,
+        ramRom: singleSellModal.ramRom || '',
+        condition: singleSellModal.condition || 'Used',
+        supplierName: singleSellModal.supplier || singleSellModal.supplierName || '',
+        supplier: singleSellModal.supplier || singleSellModal.supplierName || '',
+        imei1: singleSellModal.imei1 || '',
+        imei2: singleSellModal.imei2 || '',
         customerName: resolvedCustomerName,
         customerPhone: singleSellModal.customerPhone || '',
         basePrice,
+        costPrice: basePrice,
         sellPrice,
         profit,
         warrantyDays,
@@ -217,18 +239,13 @@ export default function MobilesStockPage() {
         paymentMethod: singleSellModal.paymentMethod,
         khataCustomerId: singleSellModal.paymentMethod === 'Udhar' ? singleSelectedKhataId : null,
         khataCustomerName: singleSellModal.paymentMethod === 'Udhar' ? khataCustomers.find(c => c.id === singleSelectedKhataId)?.name : null,
+        billId: billRef.id,
+        billNumber,
         saleDate: chosenSaleDate,
         date: localSaleDateTime,
         createdAt: serverTimestamp()
       };
       batch.set(saleRef, saleData);
-
-      // 3. Create Bill Record
-      const billRef = doc(collection(db, 'bills'));
-      const billsSnap = await getDocs(collection(db, 'bills'));
-      const shopBillsCount = billsSnap.docs.filter(b => isDocForShop(b.data(), currentShopId)).length;
-      const billPrefix = shopProfile?.shortName || 'MZ';
-      const billNumber = `${billPrefix}-${new Date().getFullYear()}-${String(shopBillsCount + 1).padStart(4, '0')}`;
       
       const billData = {
         shopId: currentShopId,
@@ -242,16 +259,22 @@ export default function MobilesStockPage() {
         warrantyLabel,
         items: [{
           mobileId: singleSellModal.id,
-          modelName: `${singleSellModal.company} ${singleSellModal.modelName}`,
-          ramRom: singleSellModal.ramRom,
-          imei1: singleSellModal.imei1,
-          imei2: singleSellModal.imei2,
+          modelName: cleanSingleModel,
+          itemName: fullSingleName,
+          name: fullSingleName,
+          company: cleanSingleCompany,
+          brand: cleanSingleCompany,
+          ramRom: singleSellModal.ramRom || '',
+          condition: singleSellModal.condition || 'Used',
+          imei1: singleSellModal.imei1 || '',
+          imei2: singleSellModal.imei2 || '',
           sellPrice,
           basePrice,
           profit,
           warrantyDays,
           warrantyLabel
         }],
+        totalBaseCost: basePrice,
         totalSellPrice: sellPrice,
         totalProfit: profit,
         paymentMethod: singleSellModal.paymentMethod,
@@ -262,7 +285,6 @@ export default function MobilesStockPage() {
         createdAt: serverTimestamp()
       };
       batch.set(billRef, billData);
-      batch.update(saleRef, { billId: billRef.id });
 
       // Handle Udhar
       if (singleSellModal.paymentMethod === 'Udhar' && singleSelectedKhataId) {
@@ -283,7 +305,7 @@ export default function MobilesStockPage() {
             customerName: khataSnap.data().name,
             transactionType: 'udhar',
             amount: sellPrice,
-            description: `Mobile sale - ${singleSellModal.modelName}`,
+            description: `Mobile Sale: ${fullSingleName}`,
             runningBalance: newBalance,
             saleDate: chosenSaleDate,
             dateStr: chosenSaleDate,
@@ -323,16 +345,16 @@ export default function MobilesStockPage() {
     setMultiCustomWarrantyDays('');
     setMultiTotalProfit(0);
     setMultiItems([{
-      id: Date.now().toString(),
-      mobileId: '', modelName: '', basePrice: 0, ramRom: '', company: ''
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      mobileId: '', modelName: '', basePrice: 0, ramRom: '', company: '', sellPrice: ''
     }]);
     setMultiSellModalOpen(true);
   };
 
   const addMultiRow = () => {
     setMultiItems(prev => [...prev, {
-      id: Date.now().toString(),
-      mobileId: '', modelName: '', basePrice: 0, ramRom: '', company: ''
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      mobileId: '', modelName: '', basePrice: 0, ramRom: '', company: '', sellPrice: ''
     }]);
   };
 
@@ -345,10 +367,12 @@ export default function MobilesStockPage() {
           return { 
             ...item, 
             mobileId: value, 
-            modelName: mobile?.modelName || '', 
-            company: mobile?.company || '',
-            ramRom: mobile?.ramRom || '',
-            basePrice: mobile?.basePrice || 0,
+            modelName: mobile?.modelName || mobile?.name || '', 
+            company: mobile?.company || mobile?.brand || 'Samsung',
+            ramRom: mobile?.ramRom || mobile?.storage || '',
+            basePrice: Number(mobile?.basePrice ?? mobile?.buyPrice ?? mobile?.costPrice) || 0,
+            condition: mobile?.condition || 'Used',
+            supplierName: mobile?.supplier || mobile?.supplierName || '',
             imei1: mobile?.imei1 || '',
             imei2: mobile?.imei2 || '',
           };
@@ -356,10 +380,25 @@ export default function MobilesStockPage() {
         return { ...item, [field]: value };
       });
 
-      const itemsWithPrice = next.filter(i => i.mobileId && i.sellPrice !== undefined && i.sellPrice !== '' && !isNaN(Number(i.sellPrice)));
-      if (itemsWithPrice.length > 0) {
-        const computedProfit = itemsWithPrice.reduce((sum, i) => sum + (Number(i.sellPrice) - (Number(i.basePrice) || 0)), 0);
-        setMultiTotalProfit(computedProfit);
+      // Only auto-compute combined profit from individual sell prices when user edits sellPrice
+      // and at least one item has a sellPrice that differs from its base cost
+      if (field === 'sellPrice') {
+        const itemsWithCustomPrice = next.filter(
+          i =>
+            i.mobileId &&
+            i.sellPrice !== undefined &&
+            i.sellPrice !== '' &&
+            !isNaN(Number(i.sellPrice)) &&
+            Number(i.sellPrice) > 0 &&
+            Math.round(Number(i.sellPrice)) !== Math.round(Number(i.basePrice) || 0)
+        );
+        if (itemsWithCustomPrice.length > 0) {
+          const computedProfit = itemsWithCustomPrice.reduce(
+            (sum, i) => sum + (Math.round(Number(i.sellPrice)) - (Math.round(Number(i.basePrice)) || 0)),
+            0
+          );
+          setMultiTotalProfit(computedProfit);
+        }
       }
       return next;
     });
@@ -368,8 +407,7 @@ export default function MobilesStockPage() {
   const handleMultiSell = async () => {
     if (isMultiSellingRef.current || isMultiSelling) return;
 
-    // Validate
-    if (!multiCustomerName) return error("Customer name is required");
+    // Validate selected mobiles
     const validItems = multiItems.filter(i => i.mobileId);
     if (validItems.length === 0) return error("Please select at least one mobile to sell");
 
@@ -384,9 +422,8 @@ export default function MobilesStockPage() {
       const batch = writeBatch(db);
       const { warrantyDays, warrantyLabel } = resolveWarrantyInfo(multiWarrantyKey, multiCustomWarrantyDays);
       
-      const totalBasePrice = validItems.reduce((acc, item) => acc + (Number(item.basePrice) || 0), 0);
-      const totalProfit = Number(multiTotalProfit) || 0;
-      const totalSellPrice = totalBasePrice + totalProfit;
+      const totalBasePrice = validItems.reduce((acc, item) => acc + (Math.round(Number(item.basePrice)) || 0), 0);
+      const enteredTotalProfit = Math.round(Number(multiTotalProfit) || 0);
 
       // Group quantity reductions to check stock
       const qtyMap: Record<string, number> = {};
@@ -409,17 +446,76 @@ export default function MobilesStockPage() {
       const shopBillsCount = billsSnap.docs.filter(b => isDocForShop(b.data(), currentShopId)).length;
       const billPrefix = shopProfile?.shortName || 'MZ';
       const billNumber = `${billPrefix}-${new Date().getFullYear()}-${String(shopBillsCount + 1).padStart(4, '0')}`;
-      
-      const billItems = validItems.map(item => {
-        const hasItemSellPrice = item.sellPrice !== undefined && item.sellPrice !== '' && !isNaN(Number(item.sellPrice)) && Number(item.sellPrice) > 0;
-        const itemBase = Number(item.basePrice) || 0;
-        const itemSell = hasItemSellPrice ? Number(item.sellPrice) : itemBase + (totalProfit / validItems.length);
-        const itemProfit = hasItemSellPrice ? (itemSell - itemBase) : (totalProfit / validItems.length);
+
+      // Check if items have explicit individual sell prices that differ from base cost
+      const itemsWithCustomSell = validItems.filter(
+        i =>
+          i.sellPrice !== undefined &&
+          i.sellPrice !== '' &&
+          !isNaN(Number(i.sellPrice)) &&
+          Number(i.sellPrice) > 0 &&
+          Math.round(Number(i.sellPrice)) !== Math.round(Number(i.basePrice) || 0)
+      );
+      const customProfitSum = itemsWithCustomSell.reduce(
+        (sum, i) => sum + (Math.round(Number(i.sellPrice)) - (Math.round(Number(i.basePrice)) || 0)),
+        0
+      );
+
+      const useIndividualPrices =
+        itemsWithCustomSell.length > 0 &&
+        (itemsWithCustomSell.length < validItems.length || customProfitSum === enteredTotalProfit);
+
+      const unpricedCount = validItems.length - itemsWithCustomSell.length;
+      const remainingProfitForUnpriced = enteredTotalProfit - customProfitSum;
+      let unpricedIdx = 0;
+
+      const billItems = validItems.map((item, idx) => {
+        const itemBase = Math.round(Number(item.basePrice) || 0);
+        const isCustomPriced =
+          useIndividualPrices &&
+          item.sellPrice !== undefined &&
+          item.sellPrice !== '' &&
+          !isNaN(Number(item.sellPrice)) &&
+          Number(item.sellPrice) > 0 &&
+          Math.round(Number(item.sellPrice)) !== itemBase;
+
+        let itemProfit = 0;
+        let itemSell = itemBase;
+
+        if (isCustomPriced) {
+          itemSell = Math.round(Number(item.sellPrice));
+          itemProfit = itemSell - itemBase;
+        } else if (useIndividualPrices && unpricedCount > 0) {
+          const baseShare = Math.floor(remainingProfitForUnpriced / unpricedCount);
+          const rem = remainingProfitForUnpriced - baseShare * unpricedCount;
+          itemProfit = unpricedIdx === 0 ? baseShare + rem : baseShare;
+          itemSell = itemBase + itemProfit;
+          unpricedIdx++;
+        } else {
+          // Combined Profit Mode across all selected mobiles
+          const count = validItems.length;
+          const baseShare = Math.floor(enteredTotalProfit / count);
+          const rem = enteredTotalProfit - baseShare * count;
+          itemProfit = idx === 0 ? baseShare + rem : baseShare;
+          itemSell = itemBase + itemProfit;
+        }
+
+        const cleanCompany = item.company || 'Samsung';
+        const cleanModel = item.modelName || 'Mobile';
+        const fullItemName = cleanModel.toLowerCase().startsWith(cleanCompany.toLowerCase())
+          ? cleanModel
+          : `${cleanCompany} ${cleanModel}`.trim();
+
         return {
           mobileId: item.mobileId,
-          modelName: item.modelName,
-          company: item.company,
-          ramRom: item.ramRom,
+          modelName: cleanModel,
+          itemName: fullItemName,
+          name: fullItemName,
+          company: cleanCompany,
+          brand: cleanCompany,
+          ramRom: item.ramRom || '',
+          condition: item.condition || 'Used',
+          supplierName: item.supplierName || '',
           imei1: item.imei1 || '',
           imei2: item.imei2 || '',
           basePrice: itemBase,
@@ -429,6 +525,9 @@ export default function MobilesStockPage() {
           warrantyLabel
         };
       });
+
+      const totalProfit = billItems.reduce((sum, i) => sum + i.profit, 0);
+      const totalSellPrice = billItems.reduce((sum, i) => sum + i.sellPrice, 0);
 
       // Ensure exact local calendar date and time (immune to server UTC midnight regression)
       const chosenSaleDate = multiSaleDate || format(new Date(), 'yyyy-MM-dd');
@@ -471,14 +570,26 @@ export default function MobilesStockPage() {
           userId: user?.uid,
           userEmail: (user?.email || '').toLowerCase(),
           itemType: 'mobile',
+          isMultiSale: validItems.length > 1,
+          multiSaleCount: validItems.length,
+          totalCombinedProfit: totalProfit,
+          totalCombinedSellPrice: totalSellPrice,
           itemId: item.mobileId,
-          itemName: `${item.company} ${item.modelName}`,
+          itemName: item.itemName,
+          name: item.itemName,
+          modelName: item.modelName,
           company: item.company,
+          brand: item.company,
+          ramRom: item.ramRom || '',
+          condition: item.condition || 'Used',
+          supplierName: item.supplierName || '',
+          supplier: item.supplierName || '',
           imei1: item.imei1 || '',
           imei2: item.imei2 || '',
           customerName: resolvedCustomerName,
           customerPhone: multiCustomerPhone || '',
           basePrice: item.basePrice,
+          costPrice: item.basePrice,
           sellPrice: item.sellPrice,
           profit: item.profit,
           warrantyDays,
@@ -487,6 +598,7 @@ export default function MobilesStockPage() {
           khataCustomerId: multiPaymentMethod === 'Udhar' ? multiSelectedKhataId : null,
           khataCustomerName: multiPaymentMethod === 'Udhar' ? khataCustomers.find(c => c.id === multiSelectedKhataId)?.name : null,
           billId: billRef.id,
+          billNumber,
           saleDate: chosenSaleDate,
           date: localSaleDateTime,
           createdAt: serverTimestamp()
@@ -503,6 +615,7 @@ export default function MobilesStockPage() {
           
           batch.update(khataRef, { totalBalance: newBalance });
           
+          const productNamesList = billItems.map(i => i.itemName).filter(Boolean).join(', ');
           const txnRef = doc(collection(db, 'khataTransactions'));
           batch.set(txnRef, {
             shopId: currentShopId,
@@ -512,7 +625,7 @@ export default function MobilesStockPage() {
             customerName: khataSnap.data().name,
             transactionType: 'udhar',
             amount: totalSellPrice,
-            description: `Multiple Sale - ${validItems.length} mobiles`,
+            description: `Multiple Sale (${validItems.length} Mobiles): ${productNamesList}`,
             runningBalance: newBalance,
             saleDate: chosenSaleDate,
             dateStr: chosenSaleDate,
@@ -910,63 +1023,92 @@ export default function MobilesStockPage() {
   
 
         <div className="space-y-4 mb-4 max-h-[40vh] overflow-y-auto pr-2">
-          {multiItems.map((item, index) => (
-            <div key={item.id} className="border border-primary-100 rounded-xl p-4 bg-primary-50/30 relative">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-semibold text-primary-700">Mobile #{index + 1}</span>
-                {multiItems.length > 1 && (
-                  <button onClick={() => setMultiItems(prev => prev.filter(i => i.id !== item.id))} className="text-accent-rose hover:bg-accent-rose/10 p-1 rounded-md transition-colors">
-                    <X className="w-4 h-4" />
-                  </button>
+          {multiItems.map((item, index) => {
+            const validCount = Math.max(1, multiItems.filter(i => i.mobileId).length);
+            const selectedOrderIdx = multiItems.filter(i => i.mobileId).findIndex(i => i.id === item.id);
+            const enteredCombinedProfit = Math.round(Number(multiTotalProfit) || 0);
+            const baseShare = Math.floor(enteredCombinedProfit / validCount);
+            const rem = enteredCombinedProfit - baseShare * validCount;
+            const shareProfit = selectedOrderIdx === 0 ? baseShare + rem : baseShare;
+            const itemBase = Math.round(Number(item.basePrice) || 0);
+            const hasCustomSell =
+              item.sellPrice !== undefined &&
+              item.sellPrice !== '' &&
+              !isNaN(Number(item.sellPrice)) &&
+              Number(item.sellPrice) > 0 &&
+              Math.round(Number(item.sellPrice)) !== itemBase;
+            const effectiveItemProfit = hasCustomSell
+              ? Math.round(Number(item.sellPrice)) - itemBase
+              : shareProfit;
+            const effectiveItemSell = itemBase + effectiveItemProfit;
+
+            return (
+              <div key={item.id} className="border border-primary-100 rounded-xl p-4 bg-primary-50/30 relative">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-semibold text-primary-700">
+                    Mobile #{index + 1}
+                    {item.mobileId && (
+                      <span className="ml-2 text-xs font-bold text-slate-800">
+                        — {item.company} {item.modelName}
+                      </span>
+                    )}
+                  </span>
+                  {multiItems.length > 1 && (
+                    <button onClick={() => setMultiItems(prev => prev.filter(i => i.id !== item.id))} className="text-accent-rose hover:bg-accent-rose/10 p-1 rounded-md transition-colors">
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                <select
+                  value={item.mobileId}
+                  onChange={(e) => updateMultiItem(item.id, 'mobileId', e.target.value)}
+                  className="w-full mb-3 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none bg-white"
+                >
+                  <option value="">Select Mobile *</option>
+                  {mobiles
+                    .filter(m => (Number(m.quantity) || 0) > 0 || m.id === item.mobileId)
+                    .map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.company || m.brand || 'Samsung'} {m.modelName} {m.ramRom ? `— ${m.ramRom}` : ''} | Cost: Rs. {(Number(m.basePrice) || 0).toLocaleString()} (Qty: {m.quantity})
+                      </option>
+                    ))}
+                </select>
+
+                {item.mobileId && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-medium text-slate-600 mb-1 block">
+                        Individual Sell Price (Optional)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="any"
+                        value={item.sellPrice || ''}
+                        onChange={(e) => updateMultiItem(item.id, 'sellPrice', e.target.value)}
+                        placeholder="Leave blank to use Combined Profit below"
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none bg-white"
+                      />
+                      <p className={`text-[11px] mt-1 font-semibold ${effectiveItemProfit >= 0 ? 'text-accent-emerald' : 'text-rose-600'}`}>
+                        Profit: {effectiveItemProfit >= 0 ? '+' : ''}Rs. {effectiveItemProfit.toLocaleString()} • Sell: Rs. {effectiveItemSell.toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-200/80 flex flex-col justify-center text-xs text-slate-600 gap-1.5">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Base Cost:</span>
+                        <strong className="text-slate-800 font-semibold">Rs. {itemBase.toLocaleString()}</strong>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">RAM / Storage:</span>
+                        <strong className="text-slate-800 font-semibold">{item.ramRom || 'N/A'}</strong>
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
-
-              <select
-                value={item.mobileId}
-                onChange={(e) => updateMultiItem(item.id, 'mobileId', e.target.value)}
-                className="w-full mb-3 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
-              >
-                <option value="">Select Mobile *</option>
-                {mobiles.map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.company} {m.modelName} — {m.ramRom} (Qty: {m.quantity})
-                  </option>
-                ))}
-              </select>
-
-              {item.mobileId && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-slate-600 mb-1 block">Sell Price (Optional)</label>
-                    <input
-                      type="number"
-                      min="1"
-                      step="any"
-                      value={item.sellPrice || ''}
-                      onChange={(e) => updateMultiItem(item.id, 'sellPrice', e.target.value)}
-                      placeholder={`Cost: Rs. ${item.basePrice}`}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none bg-white"
-                    />
-                    {Number(item.sellPrice) > 0 && (
-                      <p className={`text-[11px] mt-1 font-semibold ${Number(item.sellPrice) >= item.basePrice ? 'text-accent-emerald' : 'text-rose-600'}`}>
-                        Profit: Rs. {(Number(item.sellPrice) - item.basePrice).toLocaleString()}
-                      </p>
-                    )}
-                  </div>
-                  <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-200/80 flex flex-col justify-center text-xs text-slate-600 gap-1.5">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Base Cost:</span>
-                      <strong className="text-slate-800 font-semibold">Rs. {(item.basePrice || 0).toLocaleString()}</strong>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">RAM / Storage:</span>
-                      <strong className="text-slate-800 font-semibold">{item.ramRom || 'N/A'}</strong>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <button onClick={addMultiRow} className="w-full py-2.5 border-2 border-dashed border-[#522D60]/30 rounded-xl text-[#522D60] hover:bg-[#FAF5FC] transition-colors text-sm font-semibold flex items-center justify-center gap-2 mb-6">
@@ -976,18 +1118,23 @@ export default function MobilesStockPage() {
         <div className="bg-[#522D60] rounded-2xl p-4 text-white mb-6 shadow-md border border-[#522D60]">
           <div className="flex justify-between text-xs sm:text-sm mb-2 pb-2 border-b border-white/20">
             <span className="text-white/80">Total Base Cost (all mobiles):</span>
-            <span className="font-semibold">Rs. {multiItems.reduce((s, i) => s + (i.basePrice || 0), 0).toLocaleString()}</span>
+            <span className="font-semibold">Rs. {multiItems.reduce((s, i) => s + (Number(i.basePrice) || 0), 0).toLocaleString()}</span>
           </div>
           
           <div className="flex items-center justify-between mb-3">
-            <label className="text-xs sm:text-sm font-medium text-white/90">Total Profit Expected:</label>
+            <label className="text-xs sm:text-sm font-medium text-white/90">Combined Profit (All Mobiles):</label>
             <div className="flex items-center gap-2">
               <span className="text-sm text-white/80 font-medium">Rs.</span>
               <input
                 type="number"
                 step="any"
                 value={multiTotalProfit === 0 ? '' : multiTotalProfit}
-                onChange={(e) => setMultiTotalProfit(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setMultiTotalProfit(val);
+                  // Clear any individual sellPrice overrides so Combined Profit applies cleanly across all items
+                  setMultiItems(prev => prev.map(it => ({ ...it, sellPrice: '' })));
+                }}
                 placeholder="Profit / -Loss"
                 className="w-32 bg-white/15 border border-white/30 text-white placeholder:text-white/50 rounded-xl px-3 py-1.5 outline-none focus:ring-2 focus:ring-white text-right font-bold text-sm"
               />
@@ -996,7 +1143,7 @@ export default function MobilesStockPage() {
 
           <div className="flex justify-between font-extrabold text-base sm:text-lg pt-2 border-t border-white/20">
             <span>Total Final Sale Amount:</span>
-            <span className="text-white">Rs. {(multiItems.reduce((s, i) => s + (i.basePrice || 0), 0) + (Number(multiTotalProfit) || 0)).toLocaleString()}</span>
+            <span className="text-white">Rs. {(multiItems.reduce((s, i) => s + (Number(i.basePrice) || 0), 0) + (Number(multiTotalProfit) || 0)).toLocaleString()}</span>
           </div>
         </div>
 

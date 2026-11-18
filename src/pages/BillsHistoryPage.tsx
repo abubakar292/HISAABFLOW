@@ -61,6 +61,7 @@ export default function BillsHistoryPage() {
     
     // Check inside items array for model name, company/brand, and IMEI
     const matchesItem = b.items?.some((item: any) => 
+      (item.modelName && item.modelName.toLowerCase().includes(term)) ||
       (item.name && item.name.toLowerCase().includes(term)) ||
       (item.itemName && item.itemName.toLowerCase().includes(term)) ||
       (item.company && item.company.toLowerCase().includes(term)) ||
@@ -225,16 +226,36 @@ export default function BillsHistoryPage() {
                     <td className="px-4 py-3 font-medium text-slate-900">{b.customerName || 'Walk-in'}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <Badge variant="info">{b.items?.length || 0} Items</Badge>
+                        <Badge variant="info">{b.items?.length || 0} {(b.items?.length || 0) === 1 ? 'Item' : 'Items'}</Badge>
                         {(b.isQuickSale || b.items?.some((it: any) => it.isQuickSale)) && (
                           <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-800 border border-amber-500/30">
                             Quick Sale
                           </span>
                         )}
                       </div>
+                      {Array.isArray(b.items) && b.items.length > 0 && (
+                        <div className="text-xs font-semibold text-slate-800 mt-1 max-w-xs truncate" title={b.items.map((it: any) => {
+                          const raw = it.itemName || it.modelName || it.name || '';
+                          const comp = it.company || it.brand || '';
+                          return raw.toLowerCase().startsWith(comp.toLowerCase()) ? raw : `${comp} ${raw}`.trim();
+                        }).filter(Boolean).join(', ')}>
+                          {b.items.map((it: any) => {
+                            const raw = it.itemName || it.modelName || it.name || '';
+                            const comp = it.company || it.brand || '';
+                            return raw.toLowerCase().startsWith(comp.toLowerCase()) ? raw : `${comp} ${raw}`.trim();
+                          }).filter(Boolean).join(', ')}
+                        </div>
+                      )}
                     </td>
-                    <td className="px-4 py-3 font-bold text-slate-900">
-                      Rs. {(b.totalSellPrice || b.totalSellAmount || b.sellPrice || (b.items?.reduce((s: number, it: any) => s + (Number(it.sellPrice) || 0), 0)) || 0).toLocaleString()}
+                    <td className="px-4 py-3">
+                      <div className="font-bold text-slate-900">
+                        Rs. {(b.totalSellPrice || b.totalSellAmount || b.sellPrice || (b.items?.reduce((s: number, it: any) => s + (Number(it.sellPrice) || 0), 0)) || 0).toLocaleString()}
+                      </div>
+                      {b.totalProfit !== undefined && b.totalProfit !== null && (
+                        <div className={`text-[11px] font-bold mt-0.5 ${Number(b.totalProfit) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          Profit: {Number(b.totalProfit) >= 0 ? '+' : ''}Rs. {Math.round(Number(b.totalProfit) || 0).toLocaleString()}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant={b.paymentMethod === 'Cash' ? 'success' : 'cyan'}>
