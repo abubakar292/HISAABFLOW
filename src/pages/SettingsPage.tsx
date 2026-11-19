@@ -319,7 +319,7 @@ export default function SettingsPage() {
     startTimestampMs > 0 && endTimestampMs > startTimestampMs
       ? Math.max(1, Math.round((endTimestampMs - startTimestampMs) / (1000 * 60 * 60 * 24)))
       : isTrialPlan
-      ? 2
+      ? Math.max(3, remainingDaysCount)
       : 30;
   const remainingProgressPct = isFreePlan
     ? 100
@@ -339,11 +339,11 @@ export default function SettingsPage() {
       {/* ── SUBSCRIPTION PLAN & REMAINING DAYS CARD ── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-card p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
+          <div className="flex items-center gap-3.5 min-w-0">
             <div className="w-11 h-11 rounded-2xl bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20 flex items-center justify-center shrink-0">
               <CreditCard className="w-5 h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-sm sm:text-base font-bold text-gray-900">
                   Subscription Plan
@@ -357,7 +357,7 @@ export default function SettingsPage() {
                 {isTrialPlan && (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20">
                     <Clock className="w-3 h-3 text-[#522D60]" />
-                    2-Day Free Trial
+                    {totalCycleDays}-Day Free Trial
                   </span>
                 )}
                 {isFreePlan && (

@@ -282,6 +282,7 @@ export default function SuperAdminPage() {
             ...DEFAULT_SUBSCRIPTION_SETTINGS,
             ...data,
             monthlyPricePkr: Number(data.monthlyPricePkr) > 0 ? Number(data.monthlyPricePkr) : 1999,
+            trialDays: Number(data.trialDays) >= 1 ? Math.round(Number(data.trialDays)) : 3,
           });
         }
       },
@@ -884,19 +885,62 @@ export default function SuperAdminPage() {
     }
   };
 
+  const handleGrantTrialToTenant = async (tenant: ShopTenant, days: number) => {
+    if (togglingSubTenantId) return;
+    const cleanDays = Math.max(1, Math.round(Number(days) || 3));
+    setTogglingSubTenantId(tenant.id);
+    try {
+      const now = new Date();
+      const endsAt = new Date(now.getTime() + cleanDays * 24 * 60 * 60 * 1000);
+
+      await updateTenantSubscriptionDocs(tenant.id, tenant.ownerUid, tenant.ownerEmail, {
+        subscriptionStatus: 'trial',
+        trialUsed: true,
+        trialStartedAt: now.toISOString(),
+        trialEndsAt: endsAt.toISOString(),
+        rejectionReason: '',
+      });
+
+      setTenants((prev) =>
+        prev.map((t) =>
+          t.id === tenant.id
+            ? {
+                ...t,
+                subscriptionStatus: 'trial',
+                trialUsed: true,
+                trialEndsAt: endsAt.toISOString(),
+              }
+            : t
+        )
+      );
+
+      success(`Activated ${cleanDays}-day free trial for ${tenant.shopName}!`);
+    } catch {
+      toast('Failed to activate free trial for shop', 'error');
+    } finally {
+      setTogglingSubTenantId(null);
+    }
+  };
+
   const handleSaveSubscriptionSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanPrice = Math.max(1, Math.round(Number(subSettings.monthlyPricePkr) || 1999));
+    const cleanTrialDays = Math.max(1, Math.round(Number(subSettings.trialDays) || 3));
     setSavingSubSettings(true);
     try {
       const payload: SubscriptionSettings = {
         ...subSettings,
         monthlyPricePkr: cleanPrice,
+        trialDays: cleanTrialDays,
         updatedAt: new Date().toISOString(),
       };
       await setDoc(doc(db, 'system', 'subscription_settings'), payload, { merge: true });
       setSubSettings(payload);
-      success(`Subscription settings saved! Monthly price is now PKR ${cleanPrice.toLocaleString('en-PK')}/month.`);
+      success(
+        `Settings saved! Monthly price: PKR ${cleanPrice.toLocaleString('en-PK')} • Free trial: ${cleanTrialDays} ${
+          cleanTrialDays === 1 ? 'day' : 'days'
+        }.`
+      );
     } catch (err: any) {
       toast('Failed to save subscription settings', 'error');
     } finally {
@@ -1031,14 +1075,14 @@ export default function SuperAdminPage() {
   if (!isMasterAdmin) return null;
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-16">
+    <div className="space-y-5 sm:space-y-6 max-w-7xl mx-auto pb-16">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100">
-        <div className="flex items-center gap-2.5">
-          <span className="p-2 rounded-xl bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="p-2 rounded-xl bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20 shrink-0">
             <ShieldCheck className="w-5 h-5 text-[#522D60]" />
           </span>
-          <h1 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight">
+          <h1 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight truncate">
             HisaabFlow Admin
           </h1>
         </div>
@@ -1048,7 +1092,7 @@ export default function SuperAdminPage() {
             onClick={() => fetchTenants(false)}
             variant="secondary"
             disabled={refreshing}
-            className="text-xs font-bold"
+            className="text-xs font-bold min-h-[40px]"
           >
             <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
@@ -1056,7 +1100,7 @@ export default function SuperAdminPage() {
 
           <Button
             onClick={() => setShowAddModal(true)}
-            className="bg-[#522D60] hover:bg-[#42244E] text-white text-xs font-bold"
+            className="bg-[#522D60] hover:bg-[#42244E] text-white text-xs font-bold min-h-[40px]"
           >
             <UserPlus className="w-3.5 h-3.5 mr-1.5" />
             Register Client Shop
@@ -1065,34 +1109,34 @@ export default function SuperAdminPage() {
       </div>
 
       {/* Section Navigation Tabs */}
-      <div className="flex flex-wrap items-center gap-2 bg-white p-1.5 rounded-2xl border border-gray-200/80 shadow-xs w-fit">
+      <div className="grid grid-cols-1 sm:inline-flex sm:flex-wrap items-center gap-2 bg-white p-1.5 rounded-2xl border border-gray-200/80 shadow-xs w-full sm:w-fit">
         <button
           type="button"
           onClick={() => setActiveTab('accounts')}
-          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[40px] ${
+          className={`inline-flex items-center justify-center sm:justify-start gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[44px] ${
             activeTab === 'accounts'
               ? 'bg-[#522D60] text-white shadow-sm'
               : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
           }`}
         >
           <Users className="w-4 h-4 shrink-0" />
-          <span>Client Accounts ({totalClients})</span>
+          <span className="truncate">Client Accounts ({totalClients})</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('subscriptions')}
-          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[40px] ${
+          className={`inline-flex items-center justify-center sm:justify-start gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[44px] ${
             activeTab === 'subscriptions'
               ? 'bg-[#522D60] text-white shadow-sm'
               : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
           }`}
         >
           <CreditCard className="w-4 h-4 shrink-0" />
-          <span>Manage Subscriptions</span>
+          <span className="truncate">Manage Subscriptions</span>
           {pendingRequestsCount > 0 && (
             <span
-              className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold tabular-nums ${
+              className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold tabular-nums shrink-0 ${
                 activeTab === 'subscriptions'
                   ? 'bg-white text-[#522D60]'
                   : 'bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20'
@@ -1105,17 +1149,17 @@ export default function SuperAdminPage() {
       </div>
 
       {activeTab === 'subscriptions' ? (
-        <div className="space-y-6">
+        <div className="space-y-5 sm:space-y-6">
           {/* Subscription KPI Summary Row */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-card flex items-center gap-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-card flex items-center gap-3.5 min-w-0">
               <div className="w-11 h-11 rounded-xl bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20 flex items-center justify-center shrink-0">
                 <CreditCard className="w-5 h-5" />
               </div>
-              <div>
-                <p className="text-xs font-semibold text-gray-400">Monthly Price</p>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-gray-400 truncate">Monthly Price</p>
                 <p
-                  className="text-xl sm:text-2xl font-black text-gray-900 tabular-nums"
+                  className="text-lg sm:text-2xl font-black text-gray-900 tabular-nums truncate"
                   style={{ fontFamily: 'Sora, sans-serif' }}
                 >
                   PKR {(subSettings.monthlyPricePkr || 1999).toLocaleString('en-PK')}
@@ -1123,29 +1167,29 @@ export default function SuperAdminPage() {
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-card flex items-center gap-3.5">
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-card flex items-center gap-3.5 min-w-0">
               <div className="w-11 h-11 rounded-xl bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20 flex items-center justify-center shrink-0">
                 <Clock className="w-5 h-5" />
               </div>
-              <div>
-                <p className="text-xs font-semibold text-gray-400">Pending Approvals</p>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-gray-400 truncate">HisaabFlow Trial Days</p>
                 <p
-                  className="text-xl sm:text-2xl font-black text-gray-900 tabular-nums"
+                  className="text-lg sm:text-2xl font-black text-gray-900 tabular-nums truncate"
                   style={{ fontFamily: 'Sora, sans-serif' }}
                 >
-                  {pendingRequestsCount}
+                  {subSettings.trialDays || 3} {(subSettings.trialDays || 3) === 1 ? 'Day' : 'Days'}
                 </p>
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-card flex items-center gap-3.5">
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-card flex items-center gap-3.5 min-w-0">
               <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center shrink-0">
                 <CheckCircle2 className="w-5 h-5" />
               </div>
-              <div>
-                <p className="text-xs font-semibold text-gray-400">Active & Trial</p>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-gray-400 truncate">Active & Trial Shops</p>
                 <p
-                  className="text-xl sm:text-2xl font-black text-gray-900 tabular-nums"
+                  className="text-lg sm:text-2xl font-black text-gray-900 tabular-nums truncate"
                   style={{ fontFamily: 'Sora, sans-serif' }}
                 >
                   {
@@ -1158,14 +1202,14 @@ export default function SuperAdminPage() {
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-card flex items-center gap-3.5">
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-gray-100 shadow-card flex items-center gap-3.5 min-w-0">
               <div className="w-11 h-11 rounded-xl bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20 flex items-center justify-center shrink-0">
                 <Gift className="w-5 h-5" />
               </div>
-              <div>
-                <p className="text-xs font-semibold text-gray-400">Free Shops</p>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-gray-400 truncate">Free Shops</p>
                 <p
-                  className="text-xl sm:text-2xl font-black text-gray-900 tabular-nums"
+                  className="text-lg sm:text-2xl font-black text-gray-900 tabular-nums truncate"
                   style={{ fontFamily: 'Sora, sans-serif' }}
                 >
                   {tenants.filter((t) => t.subscriptionStatus === 'free').length}
@@ -1174,34 +1218,34 @@ export default function SuperAdminPage() {
             </div>
           </div>
 
-          {/* 1. Pricing & Payment Accounts */}
+          {/* 1. Pricing, Free Trial Days & Payment Accounts */}
           <form
             onSubmit={handleSaveSubscriptionSettings}
-            className="bg-white rounded-2xl shadow-card border border-gray-100 p-5 sm:p-6 space-y-4"
+            className="bg-white rounded-2xl shadow-card border border-gray-100 p-4 sm:p-6 space-y-4"
           >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100">
-              <h2 className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-[#522D60]" />
-                <span>Pricing & Payment Accounts</span>
+              <h2 className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2 min-w-0">
+                <CreditCard className="w-4 h-4 text-[#522D60] shrink-0" />
+                <span className="break-words">Pricing, Trial Days & Payment Accounts</span>
               </h2>
 
               <Button
                 type="submit"
                 disabled={savingSubSettings}
                 isLoading={savingSubSettings}
-                className="bg-[#522D60] hover:bg-[#42244E] text-white text-xs font-bold shrink-0"
+                className="bg-[#522D60] hover:bg-[#42244E] text-white text-xs font-bold shrink-0 min-h-[42px] w-full sm:w-auto justify-center"
               >
                 <Check className="w-3.5 h-3.5 mr-1.5" />
                 Save Changes
               </Button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3.5 sm:gap-4">
               {/* Monthly Price */}
-              <div className="p-4 rounded-2xl bg-[#FAF5FC] border border-[#522D60]/20 flex flex-col justify-between space-y-2.5">
+              <div className="p-4 rounded-2xl bg-[#FAF5FC] border border-[#522D60]/20 flex flex-col justify-between space-y-2.5 min-w-0">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-[#522D60]">
-                  <CreditCard className="w-3.5 h-3.5" />
-                  <span>Monthly Plan Price</span>
+                  <CreditCard className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">Monthly Plan Price</span>
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold text-gray-600 mb-1">
@@ -1222,18 +1266,75 @@ export default function SuperAdminPage() {
                           monthlyPricePkr: Number(e.target.value),
                         }))
                       }
-                      className="w-full pl-11 pr-3 py-2 rounded-xl border border-[#522D60]/30 bg-white text-base font-black text-gray-900 tabular-nums focus:outline-none focus:border-[#522D60]"
+                      className="w-full min-h-[42px] pl-11 pr-3 py-2 rounded-xl border border-[#522D60]/30 bg-white text-base font-black text-gray-900 tabular-nums focus:outline-none focus:border-[#522D60]"
                       style={{ fontFamily: 'Sora, sans-serif' }}
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Easypaisa */}
-              <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200/80 space-y-2.5">
+              {/* Set HisaabFlow Trial Days */}
+              <div className="p-4 rounded-2xl bg-[#FAF5FC] border border-[#522D60]/20 flex flex-col justify-between space-y-2.5 min-w-0">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-[#522D60]">
-                  <Smartphone className="w-3.5 h-3.5" />
-                  <span>Easypaisa</span>
+                  <Clock className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">Set HisaabFlow Trial Days</span>
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-semibold text-gray-600">
+                    Free Trial Duration (Days)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={1}
+                      max={365}
+                      required
+                      value={subSettings.trialDays ?? 3}
+                      onChange={(e) =>
+                        setSubSettings((prev) => ({
+                          ...prev,
+                          trialDays: Number(e.target.value),
+                        }))
+                      }
+                      className="w-full min-h-[42px] pl-3.5 pr-14 py-2 rounded-xl border border-[#522D60]/30 bg-white text-base font-black text-gray-900 tabular-nums focus:outline-none focus:border-[#522D60]"
+                      style={{ fontFamily: 'Sora, sans-serif' }}
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#522D60]">
+                      {(Number(subSettings.trialDays) || 3) === 1 ? 'Day' : 'Days'}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    {[2, 3, 5, 7, 14].map((presetDays) => {
+                      const isCurrent = Number(subSettings.trialDays) === presetDays;
+                      return (
+                        <button
+                          key={presetDays}
+                          type="button"
+                          onClick={() =>
+                            setSubSettings((prev) => ({
+                              ...prev,
+                              trialDays: presetDays,
+                            }))
+                          }
+                          className={`px-2 py-1 rounded-lg text-[11px] font-bold tabular-nums transition-colors cursor-pointer ${
+                            isCurrent
+                              ? 'bg-[#522D60] text-white'
+                              : 'bg-white text-[#522D60] border border-[#522D60]/25 hover:bg-purple-100/60'
+                          }`}
+                        >
+                          {presetDays}d
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Easypaisa */}
+              <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200/80 space-y-2.5 min-w-0">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#522D60]">
+                  <Smartphone className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">Easypaisa</span>
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold text-gray-600 mb-1">
@@ -1246,7 +1347,7 @@ export default function SuperAdminPage() {
                       setSubSettings((prev) => ({ ...prev, easypaisaTitle: e.target.value }))
                     }
                     placeholder="Account Title"
-                    className="w-full px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-900 focus:outline-none focus:border-[#522D60]"
+                    className="w-full min-h-[40px] px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-900 focus:outline-none focus:border-[#522D60]"
                   />
                 </div>
                 <div>
@@ -1260,16 +1361,16 @@ export default function SuperAdminPage() {
                       setSubSettings((prev) => ({ ...prev, easypaisaNumber: e.target.value }))
                     }
                     placeholder="03XX-XXXXXXX"
-                    className="w-full px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-mono font-bold text-gray-900 tabular-nums focus:outline-none focus:border-[#522D60]"
+                    className="w-full min-h-[40px] px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-mono font-bold text-gray-900 tabular-nums focus:outline-none focus:border-[#522D60]"
                   />
                 </div>
               </div>
 
               {/* JazzCash */}
-              <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200/80 space-y-2.5">
+              <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200/80 space-y-2.5 min-w-0">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-[#522D60]">
-                  <Smartphone className="w-3.5 h-3.5" />
-                  <span>JazzCash</span>
+                  <Smartphone className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">JazzCash</span>
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold text-gray-600 mb-1">
@@ -1282,7 +1383,7 @@ export default function SuperAdminPage() {
                       setSubSettings((prev) => ({ ...prev, jazzcashTitle: e.target.value }))
                     }
                     placeholder="Account Title"
-                    className="w-full px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-900 focus:outline-none focus:border-[#522D60]"
+                    className="w-full min-h-[40px] px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-900 focus:outline-none focus:border-[#522D60]"
                   />
                 </div>
                 <div>
@@ -1296,18 +1397,18 @@ export default function SuperAdminPage() {
                       setSubSettings((prev) => ({ ...prev, jazzcashNumber: e.target.value }))
                     }
                     placeholder="03XX-XXXXXXX"
-                    className="w-full px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-mono font-bold text-gray-900 tabular-nums focus:outline-none focus:border-[#522D60]"
+                    className="w-full min-h-[40px] px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-mono font-bold text-gray-900 tabular-nums focus:outline-none focus:border-[#522D60]"
                   />
                 </div>
               </div>
 
               {/* Bank Transfer */}
-              <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200/80 space-y-2">
+              <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200/80 space-y-2 md:col-span-2 xl:col-span-1 min-w-0">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-[#522D60]">
-                  <Building2 className="w-3.5 h-3.5" />
-                  <span>Bank Transfer</span>
+                  <Building2 className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">Bank Transfer</span>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-2">
                   <div>
                     <label className="block text-[11px] font-semibold text-gray-600 mb-1">
                       Bank Name
@@ -1319,7 +1420,7 @@ export default function SuperAdminPage() {
                         setSubSettings((prev) => ({ ...prev, bankName: e.target.value }))
                       }
                       placeholder="Bank Name"
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-900 focus:outline-none focus:border-[#522D60]"
+                      className="w-full min-h-[40px] px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-900 focus:outline-none focus:border-[#522D60]"
                     />
                   </div>
                   <div>
@@ -1333,7 +1434,7 @@ export default function SuperAdminPage() {
                         setSubSettings((prev) => ({ ...prev, bankAccountTitle: e.target.value }))
                       }
                       placeholder="Title"
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-900 focus:outline-none focus:border-[#522D60]"
+                      className="w-full min-h-[40px] px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-900 focus:outline-none focus:border-[#522D60]"
                     />
                   </div>
                 </div>
@@ -1348,7 +1449,7 @@ export default function SuperAdminPage() {
                       setSubSettings((prev) => ({ ...prev, bankAccountNumber: e.target.value }))
                     }
                     placeholder="Account / IBAN"
-                    className="w-full px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-mono font-bold text-gray-900 tabular-nums focus:outline-none focus:border-[#522D60]"
+                    className="w-full min-h-[40px] px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-mono font-bold text-gray-900 tabular-nums focus:outline-none focus:border-[#522D60]"
                   />
                 </div>
               </div>
@@ -1362,7 +1463,7 @@ export default function SuperAdminPage() {
                 Payment Approvals
               </h2>
 
-              <div className="flex flex-wrap items-center gap-1.5 bg-gray-100 p-1 rounded-xl">
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 bg-gray-100 p-1 rounded-xl w-full sm:w-auto">
                 {(
                   [
                     { id: 'pending', label: `Pending (${pendingRequestsCount})` },
@@ -1375,7 +1476,7 @@ export default function SuperAdminPage() {
                     key={tab.id}
                     type="button"
                     onClick={() => setRequestFilter(tab.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    className={`px-3 py-2 sm:py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer min-h-[38px] text-center truncate ${
                       requestFilter === tab.id
                         ? 'bg-white text-[#522D60] shadow-xs'
                         : 'text-gray-600 hover:text-gray-900'
@@ -1387,7 +1488,131 @@ export default function SuperAdminPage() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            {/* Mobile Stacked Cards for Payment Approvals */}
+            <div className="md:hidden divide-y divide-gray-100">
+              {filteredSubRequests.length === 0 ? (
+                <div className="px-4 py-10 text-center text-xs text-gray-400">
+                  No {requestFilter === 'all' ? '' : requestFilter} payment requests.
+                </div>
+              ) : (
+                filteredSubRequests.map((req) => {
+                  const submittedDate = parseDateSafe(req.submittedAt) || new Date();
+                  const isProcessing = processingRequestId === req.id;
+
+                  return (
+                    <div key={req.id} className="p-4 space-y-3 text-xs">
+                      <div className="flex items-start justify-between gap-2.5">
+                        <div className="min-w-0">
+                          <p className="font-bold text-gray-900 text-sm break-words">{req.shopName}</p>
+                          <p className="text-[11px] text-gray-500 font-mono break-all mt-0.5">
+                            {req.ownerEmail}
+                          </p>
+                        </div>
+                        <div className="shrink-0">
+                          {req.status === 'pending' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20">
+                              <Clock className="w-3 h-3 text-[#522D60]" />
+                              Pending
+                            </span>
+                          )}
+                          {req.status === 'approved' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <CheckCircle className="w-3 h-3 text-emerald-600" />
+                              Approved ({req.grantedDays || 30}d)
+                            </span>
+                          )}
+                          {req.status === 'rejected' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                              <XCircle className="w-3 h-3 text-rose-600" />
+                              Rejected
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5 p-3 rounded-xl bg-gray-50 border border-gray-200/70">
+                        <div className="min-w-0">
+                          <span className="text-[11px] text-gray-500 block">Amount & Method</span>
+                          <span
+                            className="font-black text-gray-900 tabular-nums block mt-0.5"
+                            style={{ fontFamily: 'Sora, sans-serif' }}
+                          >
+                            PKR {(req.amountPkr || 1999).toLocaleString('en-PK')}
+                          </span>
+                          <span className="text-[11px] font-semibold text-[#522D60]">
+                            {req.paymentMethod}
+                          </span>
+                        </div>
+
+                        <div className="min-w-0">
+                          <span className="text-[11px] text-gray-500 block">TID (Last 6 Digits)</span>
+                          <span className="inline-block mt-1 px-2 py-0.5 rounded-md bg-[#FAF5FC] border border-[#522D60]/20 text-[#522D60] font-mono font-black text-xs tabular-nums">
+                            #{req.transactionIdLast6}
+                          </span>
+                        </div>
+
+                        <div className="col-span-2 min-w-0 pt-1.5 border-t border-gray-200/60 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <span className="text-[11px] text-gray-500 block">Sender Account</span>
+                            <p className="font-bold text-gray-800 break-words">
+                              {req.senderAccountName} ({req.senderAccountNumber})
+                            </p>
+                          </div>
+                          <span className="text-[10px] text-gray-400 tabular-nums shrink-0">
+                            {format(submittedDate, 'dd MMM, hh:mm a')}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedRequestModal(req)}
+                          className="min-h-[42px] px-3 py-2 rounded-xl bg-[#FAF5FC] hover:bg-purple-100 text-[#522D60] border border-[#522D60]/20 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5 shrink-0" />
+                          <span>View Receipt</span>
+                        </button>
+
+                        {req.status !== 'rejected' ? (
+                          <button
+                            type="button"
+                            disabled={isProcessing}
+                            onClick={() => handleRejectRequest(req)}
+                            className="min-h-[42px] px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            Reject
+                          </button>
+                        ) : (
+                          <div />
+                        )}
+
+                        <button
+                          type="button"
+                          disabled={isProcessing}
+                          onClick={() => handleApproveRequest(req, 30)}
+                          className="min-h-[42px] px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          Approve 30d
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isProcessing}
+                          onClick={() => handleApproveRequest(req, 31)}
+                          className="min-h-[42px] px-3 py-2 rounded-xl bg-[#522D60] hover:bg-[#42244E] text-white text-xs font-bold flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          Approve 31d
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Desktop Table for Payment Approvals */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full min-w-[800px] text-left text-xs">
                 <thead>
                   <tr className="bg-gray-50/80 border-b border-gray-100 text-[11px] font-bold text-gray-500">
@@ -1536,12 +1761,120 @@ export default function SuperAdminPage() {
                   placeholder="Search shop or email..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-gray-200 text-xs text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:border-[#522D60]"
+                  className="w-full min-h-[40px] pl-9 pr-3 py-1.5 rounded-xl border border-gray-200 text-xs text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:border-[#522D60]"
                 />
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            {/* Mobile Stacked Cards for Client Subscriptions */}
+            <div className="md:hidden divide-y divide-gray-100">
+              {filteredTenants.map((t) => {
+                const isOwner =
+                  t.ownerEmail.toLowerCase() === 'threadsandtailsshop@gmail.com' ||
+                  t.ownerEmail.toLowerCase() === 'admin@hisaabflow.com';
+                const subEval = evaluateSubscriptionAccess(t, isOwner);
+                const isFree = t.subscriptionStatus === 'free';
+                const configuredTrial = Math.max(1, Math.round(Number(subSettings.trialDays) || 3));
+
+                return (
+                  <div key={t.id} className="p-4 space-y-3 text-xs">
+                    <div className="flex items-start justify-between gap-2.5">
+                      <div className="min-w-0">
+                        <p className="font-bold text-gray-900 text-sm break-words">{t.shopName}</p>
+                        <p className="text-[11px] text-gray-500 font-mono break-all mt-0.5">
+                          {t.ownerEmail}
+                        </p>
+                      </div>
+                      <span
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-bold shrink-0 ${
+                          subEval.effectiveStatus === 'free'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : subEval.effectiveStatus === 'active' ||
+                              subEval.effectiveStatus === 'trial' ||
+                              subEval.effectiveStatus === 'pending_approval'
+                            ? 'bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20'
+                            : 'bg-rose-50 text-rose-700 border border-rose-200'
+                        }`}
+                      >
+                        {subEval.remainingText}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-gray-50 border border-gray-200/70">
+                      <span className="text-[11px] text-gray-500">Validity</span>
+                      <span className="font-semibold text-gray-800 tabular-nums text-right">
+                        {subEval.effectiveStatus === 'active' && t.subscriptionEndsAt
+                          ? `Until ${format(new Date(t.subscriptionEndsAt), 'dd MMM yyyy')}`
+                          : subEval.effectiveStatus === 'trial' && t.trialEndsAt
+                          ? `Trial ends ${format(new Date(t.trialEndsAt), 'dd MMM, hh:mm a')}`
+                          : subEval.effectiveStatus === 'free'
+                          ? 'Unlimited'
+                          : 'Subscription Required'}
+                      </span>
+                    </div>
+
+                    {!isOwner && (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5">
+                        <button
+                          type="button"
+                          disabled={togglingSubTenantId === t.id}
+                          onClick={() => handleToggleFreeAccess(t)}
+                          className={`min-h-[42px] px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer col-span-2 ${
+                            isFree
+                              ? 'bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/25 hover:bg-purple-100/70'
+                              : 'bg-[#522D60] text-white hover:bg-[#42244E] shadow-xs'
+                          }`}
+                        >
+                          {isFree ? (
+                            <>
+                              <Lock className="w-3.5 h-3.5 shrink-0" />
+                              <span>Make Paid</span>
+                            </>
+                          ) : (
+                            <>
+                              <Gift className="w-3.5 h-3.5 shrink-0" />
+                              <span>Make Free</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={togglingSubTenantId === t.id}
+                          onClick={() => handleGrantTrialToTenant(t, configuredTrial)}
+                          className="min-h-[42px] px-2.5 py-2 rounded-xl bg-[#FAF5FC] hover:bg-purple-100 text-[#522D60] border border-[#522D60]/20 text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                        >
+                          <Clock className="w-3.5 h-3.5 shrink-0" />
+                          <span>Trial ({configuredTrial}d)</span>
+                        </button>
+
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <button
+                            type="button"
+                            disabled={togglingSubTenantId === t.id}
+                            onClick={() => handleGrantDaysToTenant(t, 30)}
+                            className="min-h-[42px] px-2 py-2 rounded-xl bg-[#FAF5FC] hover:bg-purple-100 text-[#522D60] border border-[#522D60]/20 text-xs font-bold transition-colors cursor-pointer"
+                          >
+                            +30d
+                          </button>
+                          <button
+                            type="button"
+                            disabled={togglingSubTenantId === t.id}
+                            onClick={() => handleGrantDaysToTenant(t, 31)}
+                            className="min-h-[42px] px-2 py-2 rounded-xl bg-[#FAF5FC] hover:bg-purple-100 text-[#522D60] border border-[#522D60]/20 text-xs font-bold transition-colors cursor-pointer"
+                          >
+                            +31d
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Table for Client Subscriptions */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full min-w-[740px] text-left text-xs">
                 <thead>
                   <tr className="bg-gray-50/80 border-b border-gray-100 text-[11px] font-bold text-gray-500">
@@ -1559,6 +1892,7 @@ export default function SuperAdminPage() {
                       t.ownerEmail.toLowerCase() === 'admin@hisaabflow.com';
                     const subEval = evaluateSubscriptionAccess(t, isOwner);
                     const isFree = t.subscriptionStatus === 'free';
+                    const configuredTrial = Math.max(1, Math.round(Number(subSettings.trialDays) || 3));
 
                     return (
                       <tr key={t.id} className="hover:bg-purple-50/20 transition-colors">
@@ -1601,7 +1935,7 @@ export default function SuperAdminPage() {
                           {isOwner ? (
                             <span className="text-[11px] text-gray-400 italic">Admin</span>
                           ) : (
-                            <div className="inline-flex items-center justify-end gap-2">
+                            <div className="inline-flex items-center justify-end gap-1.5">
                               <button
                                 type="button"
                                 disabled={togglingSubTenantId === t.id}
@@ -1623,6 +1957,16 @@ export default function SuperAdminPage() {
                                     <span>Make Free</span>
                                   </>
                                 )}
+                              </button>
+
+                              <button
+                                type="button"
+                                disabled={togglingSubTenantId === t.id}
+                                onClick={() => handleGrantTrialToTenant(t, configuredTrial)}
+                                title={`Start ${configuredTrial}-day free trial for this shop`}
+                                className="px-2.5 py-1.5 rounded-lg bg-[#FAF5FC] hover:bg-purple-100 text-[#522D60] border border-[#522D60]/20 text-[11px] font-bold transition-colors cursor-pointer"
+                              >
+                                Trial ({configuredTrial}d)
                               </button>
 
                               <button

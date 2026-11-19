@@ -12,6 +12,7 @@ export type SubscriptionStatus =
 
 export interface SubscriptionSettings {
   monthlyPricePkr: number;
+  trialDays: number;
   easypaisaTitle: string;
   easypaisaNumber: string;
   jazzcashTitle: string;
@@ -25,6 +26,7 @@ export interface SubscriptionSettings {
 
 export const DEFAULT_SUBSCRIPTION_SETTINGS: SubscriptionSettings = {
   monthlyPricePkr: 1999,
+  trialDays: 3,
   easypaisaTitle: 'HisaabFlow Official',
   easypaisaNumber: '0300-0000000',
   jazzcashTitle: 'HisaabFlow Official',

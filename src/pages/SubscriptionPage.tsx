@@ -115,6 +115,7 @@ export default function SubscriptionPage() {
             ...DEFAULT_SUBSCRIPTION_SETTINGS,
             ...data,
             monthlyPricePkr: Number(data.monthlyPricePkr) > 0 ? Number(data.monthlyPricePkr) : 1999,
+            trialDays: Number(data.trialDays) >= 1 ? Math.round(Number(data.trialDays)) : 3,
           });
         }
       },
@@ -152,6 +153,7 @@ export default function SubscriptionPage() {
   const canStartFreeTrial = !shopProfile.trialUsed && shopProfile.subscriptionStatus === 'unselected';
   const isPendingApproval =
     shopProfile.subscriptionStatus === 'pending_approval' && !overrideResubmit;
+  const configuredTrialDays = Math.max(1, Math.round(Number(settings.trialDays) || 3));
 
   const handleCopy = (value: string, label: string) => {
     if (!value) return;
@@ -166,14 +168,14 @@ export default function SubscriptionPage() {
     setStartingTrial(true);
     try {
       const now = new Date();
-      const endsAt = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+      const endsAt = new Date(now.getTime() + configuredTrialDays * 24 * 60 * 60 * 1000);
       await updateProfileData({
         subscriptionStatus: 'trial',
         trialUsed: true,
         trialStartedAt: now.toISOString(),
         trialEndsAt: endsAt.toISOString(),
       });
-      success('2-Day Free Trial activated!');
+      success(`${configuredTrialDays}-Day Free Trial activated!`);
     } catch {
       toast('Could not activate free trial. Please try again.', 'error');
     } finally {
@@ -281,21 +283,21 @@ export default function SubscriptionPage() {
     <div className="min-h-screen bg-[#F8F9FA] text-gray-900 flex flex-col">
       {/* Top Bar */}
       <header className="bg-white border-b border-gray-200/80 sticky top-0 z-20">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className="max-w-4xl mx-auto px-3.5 sm:px-6 h-16 flex items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
             <img
               src="/logo.png"
               alt="HisaabFlow"
-              className="w-9 h-9 rounded-xl object-contain shrink-0"
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl object-contain shrink-0"
             />
             <div className="min-w-0">
               <span
-                className="font-extrabold text-gray-900 text-base tracking-tight block truncate"
+                className="font-extrabold text-gray-900 text-sm sm:text-base tracking-tight block truncate"
                 style={{ fontFamily: 'Sora, sans-serif' }}
               >
                 HISAABFLOW
               </span>
-              <p className="text-xs text-gray-500 truncate">
+              <p className="text-[11px] sm:text-xs text-gray-500 truncate">
                 {shopProfile.shopName || 'Mobile Shop'} ({user?.email})
               </p>
             </div>
@@ -304,7 +306,7 @@ export default function SubscriptionPage() {
           <button
             type="button"
             onClick={logout}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-gray-700 hover:text-gray-900 bg-gray-100 hover:bg-gray-200/80 transition-colors cursor-pointer min-h-[38px]"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-gray-700 hover:text-gray-900 bg-gray-100 hover:bg-gray-200/80 transition-colors cursor-pointer min-h-[40px] shrink-0"
           >
             <LogOut className="w-3.5 h-3.5 text-gray-500" />
             <span>Sign out</span>
@@ -313,7 +315,7 @@ export default function SubscriptionPage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex items-center justify-center px-4 sm:px-6 py-8">
+      <main className="flex-1 flex items-center justify-center px-3.5 sm:px-6 py-6 sm:py-8">
         <div className="w-full max-w-2xl">
           {/* Expiry / Rejection Alerts */}
           {(accessEval.expiredReason === 'trial_ended' ||
@@ -321,9 +323,9 @@ export default function SubscriptionPage() {
             !isPendingApproval && (
               <div className="mb-4 p-3.5 rounded-2xl bg-[#FAF5FC] border border-[#522D60]/20 flex items-center gap-3">
                 <Clock className="w-4 h-4 text-[#522D60] shrink-0" />
-                <p className="text-xs font-semibold text-[#522D60]">
+                <p className="text-xs font-semibold text-[#522D60] break-words">
                   {accessEval.expiredReason === 'trial_ended'
-                    ? 'Your 2-day free trial has ended. Subscribe below to continue.'
+                    ? 'Your free trial has ended. Subscribe below to continue.'
                     : 'Your monthly subscription has ended. Renew below to continue.'}
                 </p>
               </div>
@@ -332,23 +334,23 @@ export default function SubscriptionPage() {
           {shopProfile.rejectionReason && !isPendingApproval && (
             <div className="mb-4 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 flex items-start gap-3">
               <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              <p className="text-xs font-semibold text-rose-700">{shopProfile.rejectionReason}</p>
+              <p className="text-xs font-semibold text-rose-700 break-words">{shopProfile.rejectionReason}</p>
             </div>
           )}
 
           {/* VIEW 1: PAYMENT UNDER REVIEW */}
           {isPendingApproval ? (
-            <div className="bg-white border border-gray-200/80 rounded-2xl p-6 sm:p-7 shadow-card space-y-5">
+            <div className="bg-white border border-gray-200/80 rounded-2xl p-4 sm:p-7 shadow-card space-y-5">
               <div className="flex items-center gap-3.5 pb-4 border-b border-gray-100">
                 <div className="w-11 h-11 rounded-xl bg-[#FAF5FC] border border-[#522D60]/20 flex items-center justify-center shrink-0">
                   <Clock className="w-5 h-5 text-[#522D60]" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20">
                     Pending Approval
                   </span>
                   <h1
-                    className="text-lg sm:text-xl font-black text-gray-900 mt-1"
+                    className="text-lg sm:text-xl font-black text-gray-900 mt-1 break-words"
                     style={{ fontFamily: 'Sora, sans-serif' }}
                   >
                     Payment Proof Submitted
@@ -357,14 +359,14 @@ export default function SubscriptionPage() {
               </div>
 
               {latestRequest && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-gray-50 border border-gray-200/70 rounded-xl p-4">
-                  <div className="sm:col-span-2 space-y-2.5 text-xs">
-                    <div className="flex items-center justify-between py-1 border-b border-gray-200/60">
-                      <span className="text-gray-500">Shop</span>
-                      <span className="font-bold text-gray-900">{latestRequest.shopName}</span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-gray-50 border border-gray-200/70 rounded-xl p-3.5 sm:p-4">
+                  <div className="sm:col-span-2 space-y-2.5 text-xs min-w-0">
+                    <div className="flex items-center justify-between gap-2 py-1 border-b border-gray-200/60">
+                      <span className="text-gray-500 shrink-0">Shop</span>
+                      <span className="font-bold text-gray-900 text-right truncate">{latestRequest.shopName}</span>
                     </div>
-                    <div className="flex items-center justify-between py-1 border-b border-gray-200/60">
-                      <span className="text-gray-500">Amount</span>
+                    <div className="flex items-center justify-between gap-2 py-1 border-b border-gray-200/60">
+                      <span className="text-gray-500 shrink-0">Amount</span>
                       <span
                         className="font-black text-[#522D60] tabular-nums"
                         style={{ fontFamily: 'Sora, sans-serif' }}
@@ -372,18 +374,18 @@ export default function SubscriptionPage() {
                         PKR {formatPkr(latestRequest.amountPkr)}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between py-1 border-b border-gray-200/60">
-                      <span className="text-gray-500">Method</span>
+                    <div className="flex items-center justify-between gap-2 py-1 border-b border-gray-200/60">
+                      <span className="text-gray-500 shrink-0">Method</span>
                       <span className="font-bold text-gray-900">{latestRequest.paymentMethod}</span>
                     </div>
-                    <div className="flex items-center justify-between py-1 border-b border-gray-200/60">
-                      <span className="text-gray-500">Sender</span>
-                      <span className="font-bold text-gray-900">
+                    <div className="flex items-center justify-between gap-2 py-1 border-b border-gray-200/60">
+                      <span className="text-gray-500 shrink-0">Sender</span>
+                      <span className="font-bold text-gray-900 text-right break-words">
                         {latestRequest.senderAccountName} ({latestRequest.senderAccountNumber})
                       </span>
                     </div>
-                    <div className="flex items-center justify-between py-1">
-                      <span className="text-gray-500">TID (Last 6 Digits)</span>
+                    <div className="flex items-center justify-between gap-2 py-1">
+                      <span className="text-gray-500 shrink-0">TID (Last 6 Digits)</span>
                       <span className="px-2 py-0.5 rounded bg-[#FAF5FC] text-[#522D60] border border-[#522D60]/20 font-mono font-bold tabular-nums">
                         #{latestRequest.transactionIdLast6}
                       </span>
@@ -414,7 +416,7 @@ export default function SubscriptionPage() {
                     setOverrideResubmit(true);
                     setStep('checkout');
                   }}
-                  className="text-xs font-bold text-[#522D60] hover:underline cursor-pointer"
+                  className="text-xs font-bold text-[#522D60] hover:underline cursor-pointer min-h-[40px] inline-flex items-center"
                 >
                   Submit new payment proof
                 </button>
@@ -422,15 +424,15 @@ export default function SubscriptionPage() {
             </div>
           ) : step === 'plan' ? (
             /* VIEW 2: STEP 1 — CLEAN WHITE SUBSCRIPTION CARD */
-            <div className="bg-white border border-gray-200/80 rounded-2xl p-6 sm:p-8 shadow-card space-y-6">
+            <div className="bg-white border border-gray-200/80 rounded-2xl p-4 sm:p-8 shadow-card space-y-5 sm:space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-gray-100">
-                <div>
+                <div className="min-w-0">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FAF5FC] border border-[#522D60]/20 text-[#522D60] text-xs font-bold mb-2">
-                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
                     <span>HisaabFlow Monthly Plan</span>
                   </span>
                   <h1
-                    className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight"
+                    className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight break-words"
                     style={{ fontFamily: 'Sora, sans-serif' }}
                   >
                     {shopProfile.shopName || 'Mobile Shop'}
@@ -438,9 +440,9 @@ export default function SubscriptionPage() {
                 </div>
 
                 {/* Price Box */}
-                <div className="bg-[#FAF5FC] border border-[#522D60]/20 rounded-2xl px-5 py-3.5 text-left sm:text-right shrink-0">
+                <div className="bg-[#FAF5FC] border border-[#522D60]/20 rounded-2xl px-4 sm:px-5 py-3.5 text-left sm:text-right shrink-0">
                   <span className="text-[11px] font-bold text-gray-500 block">Monthly Subscription</span>
-                  <div className="flex items-baseline sm:justify-end gap-1 mt-0.5">
+                  <div className="flex items-baseline sm:justify-end gap-1 mt-0.5 flex-wrap">
                     <span className="text-xs font-bold text-[#522D60]">PKR</span>
                     <span
                       className="text-2xl sm:text-3xl font-black text-[#522D60] tabular-nums tracking-tight"
@@ -458,10 +460,10 @@ export default function SubscriptionPage() {
                 {planFeatures.map((feat, idx) => (
                   <div
                     key={idx}
-                    className="flex items-center gap-2.5 p-3 rounded-xl bg-gray-50 border border-gray-200/60"
+                    className="flex items-center gap-2.5 p-3 rounded-xl bg-gray-50 border border-gray-200/60 min-w-0"
                   >
                     <CheckCircle2 className="w-4 h-4 text-[#522D60] shrink-0" />
-                    <span className="text-xs font-bold text-gray-800">{feat}</span>
+                    <span className="text-xs font-bold text-gray-800 break-words">{feat}</span>
                   </div>
                 ))}
               </div>
@@ -471,13 +473,13 @@ export default function SubscriptionPage() {
                 <button
                   type="button"
                   onClick={() => setStep('checkout')}
-                  className="w-full min-h-[46px] py-3 px-6 rounded-xl bg-[#522D60] hover:bg-[#42244E] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md shadow-[#522D60]/20 transition-all cursor-pointer"
+                  className="w-full min-h-[46px] py-3 px-4 sm:px-6 rounded-xl bg-[#522D60] hover:bg-[#42244E] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md shadow-[#522D60]/20 transition-all cursor-pointer text-center"
                 >
-                  <CreditCard className="w-4 h-4" />
+                  <CreditCard className="w-4 h-4 shrink-0" />
                   <span>
                     Continue to Subscription (PKR {formatPkr(settings.monthlyPricePkr)})
                   </span>
-                  <ArrowRight className="w-4 h-4" />
+                  <ArrowRight className="w-4 h-4 shrink-0" />
                 </button>
 
                 {canStartFreeTrial && (
@@ -485,15 +487,17 @@ export default function SubscriptionPage() {
                     type="button"
                     onClick={handleStartFreeTrial}
                     disabled={startingTrial}
-                    className="w-full min-h-[44px] py-2.5 px-5 rounded-xl bg-[#FAF5FC] hover:bg-purple-100/70 text-[#522D60] font-bold text-xs sm:text-sm border border-[#522D60]/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60"
+                    className="w-full min-h-[44px] py-2.5 px-4 sm:px-5 rounded-xl bg-[#FAF5FC] hover:bg-purple-100/70 text-[#522D60] font-bold text-xs sm:text-sm border border-[#522D60]/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-60 text-center"
                   >
                     {startingTrial ? (
-                      <RefreshCw className="w-4 h-4 animate-spin text-[#522D60]" />
+                      <RefreshCw className="w-4 h-4 animate-spin text-[#522D60] shrink-0" />
                     ) : (
-                      <Clock className="w-4 h-4 text-[#522D60]" />
+                      <Clock className="w-4 h-4 text-[#522D60] shrink-0" />
                     )}
                     <span>
-                      {startingTrial ? 'Starting Trial...' : 'Start 2-Day Free Trial'}
+                      {startingTrial
+                        ? 'Starting Trial...'
+                        : `Start ${configuredTrialDays}-${configuredTrialDays === 1 ? 'Day' : 'Day'} Free Trial`}
                     </span>
                   </button>
                 )}
@@ -501,7 +505,7 @@ export default function SubscriptionPage() {
             </div>
           ) : (
             /* VIEW 3: STEP 2 — CLEAN WHITE PAYMENT CHECKOUT CARD */
-            <div className="bg-white border border-gray-200/80 rounded-2xl p-6 sm:p-7 shadow-card space-y-5">
+            <div className="bg-white border border-gray-200/80 rounded-2xl p-4 sm:p-7 shadow-card space-y-5">
               <div className="flex items-center justify-between gap-3 pb-4 border-b border-gray-100">
                 <button
                   type="button"
@@ -512,7 +516,7 @@ export default function SubscriptionPage() {
                       setStep('plan');
                     }
                   }}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-700 hover:text-gray-900 bg-gray-100 hover:bg-gray-200/80 px-3 py-2 rounded-xl transition-colors cursor-pointer min-h-[38px]"
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-gray-700 hover:text-gray-900 bg-gray-100 hover:bg-gray-200/80 px-3 py-2 rounded-xl transition-colors cursor-pointer min-h-[40px]"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
                   <span>Back</span>
@@ -531,7 +535,7 @@ export default function SubscriptionPage() {
 
               {/* Payment Method Tabs */}
               <div className="space-y-3">
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {(['Easypaisa', 'JazzCash', 'Bank Transfer'] as const).map((method) => {
                     const isSelected = paymentMethod === method;
                     return (
@@ -539,7 +543,7 @@ export default function SubscriptionPage() {
                         key={method}
                         type="button"
                         onClick={() => setPaymentMethod(method)}
-                        className={`min-h-[42px] px-3 py-2 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                           isSelected
                             ? 'bg-[#522D60] border-[#522D60] text-white shadow-sm'
                             : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
@@ -557,15 +561,15 @@ export default function SubscriptionPage() {
                 </div>
 
                 {/* Selected Receiving Account Box */}
-                <div className="p-4 rounded-xl bg-[#FAF5FC] border border-[#522D60]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="p-3.5 sm:p-4 rounded-xl bg-[#FAF5FC] border border-[#522D60]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   {paymentMethod === 'Easypaisa' && (
                     <>
-                      <div>
-                        <span className="text-[11px] font-bold text-[#522D60] block">
+                      <div className="min-w-0">
+                        <span className="text-[11px] font-bold text-[#522D60] block break-words">
                           Easypaisa • {settings.easypaisaTitle || 'HisaabFlow'}
                         </span>
                         <p
-                          className="text-base sm:text-lg font-black text-gray-900 font-mono tabular-nums mt-0.5"
+                          className="text-base sm:text-lg font-black text-gray-900 font-mono tabular-nums mt-0.5 break-all"
                           style={{ fontFamily: 'Sora, sans-serif' }}
                         >
                           {settings.easypaisaNumber || '0300-0000000'}
@@ -576,7 +580,7 @@ export default function SubscriptionPage() {
                         onClick={() =>
                           handleCopy(settings.easypaisaNumber || '0300-0000000', 'Easypaisa number')
                         }
-                        className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-gray-50 text-xs font-bold text-[#522D60] border border-[#522D60]/25 transition-colors cursor-pointer min-h-[38px] shrink-0"
+                        className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-gray-50 text-xs font-bold text-[#522D60] border border-[#522D60]/25 transition-colors cursor-pointer min-h-[42px] shrink-0 w-full sm:w-auto"
                       >
                         {copiedField === 'Easypaisa number' ? (
                           <Check className="w-3.5 h-3.5 text-emerald-600" />
@@ -590,12 +594,12 @@ export default function SubscriptionPage() {
 
                   {paymentMethod === 'JazzCash' && (
                     <>
-                      <div>
-                        <span className="text-[11px] font-bold text-[#522D60] block">
+                      <div className="min-w-0">
+                        <span className="text-[11px] font-bold text-[#522D60] block break-words">
                           JazzCash • {settings.jazzcashTitle || 'HisaabFlow'}
                         </span>
                         <p
-                          className="text-base sm:text-lg font-black text-gray-900 font-mono tabular-nums mt-0.5"
+                          className="text-base sm:text-lg font-black text-gray-900 font-mono tabular-nums mt-0.5 break-all"
                           style={{ fontFamily: 'Sora, sans-serif' }}
                         >
                           {settings.jazzcashNumber || '0300-0000000'}
@@ -606,7 +610,7 @@ export default function SubscriptionPage() {
                         onClick={() =>
                           handleCopy(settings.jazzcashNumber || '0300-0000000', 'JazzCash number')
                         }
-                        className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-gray-50 text-xs font-bold text-[#522D60] border border-[#522D60]/25 transition-colors cursor-pointer min-h-[38px] shrink-0"
+                        className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-gray-50 text-xs font-bold text-[#522D60] border border-[#522D60]/25 transition-colors cursor-pointer min-h-[42px] shrink-0 w-full sm:w-auto"
                       >
                         {copiedField === 'JazzCash number' ? (
                           <Check className="w-3.5 h-3.5 text-emerald-600" />
@@ -620,8 +624,8 @@ export default function SubscriptionPage() {
 
                   {paymentMethod === 'Bank Transfer' && (
                     <>
-                      <div>
-                        <span className="text-[11px] font-bold text-[#522D60] block">
+                      <div className="min-w-0">
+                        <span className="text-[11px] font-bold text-[#522D60] block break-words">
                           {settings.bankName || 'Bank'} • {settings.bankAccountTitle || 'HisaabFlow'}
                         </span>
                         <p
@@ -639,7 +643,7 @@ export default function SubscriptionPage() {
                             'Account number'
                           )
                         }
-                        className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-gray-50 text-xs font-bold text-[#522D60] border border-[#522D60]/25 transition-colors cursor-pointer min-h-[38px] shrink-0"
+                        className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-gray-50 text-xs font-bold text-[#522D60] border border-[#522D60]/25 transition-colors cursor-pointer min-h-[42px] shrink-0 w-full sm:w-auto"
                       >
                         {copiedField === 'Account number' ? (
                           <Check className="w-3.5 h-3.5 text-emerald-600" />
